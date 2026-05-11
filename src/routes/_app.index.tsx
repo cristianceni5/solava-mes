@@ -2,7 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CheckCircle2, Clock, PackageCheck, Printer } from "lucide-react";
+import { Clock, PackageCheck, Printer } from "lucide-react";
+import {
+  PageHeader,
+  PageShell,
+  PrimaryButton,
+  StatusPill,
+  Surface,
+} from "@/components/mes-ui";
 import { confirmPhaseReceipt, getPhaseWorkstation } from "@/lib/mes.functions";
 import { useAuth } from "@/lib/auth";
 
@@ -44,7 +51,8 @@ function WorkstationPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["workstation", employee?.phase_id],
-    queryFn: () => fetchWorkstation({ data: { phase_id: employee!.phase_id as never } }),
+    queryFn: () =>
+      fetchWorkstation({ data: { phase_id: employee!.phase_id as never } }),
     enabled: !!employee,
     refetchInterval: 2_000,
   });
@@ -70,36 +78,42 @@ function WorkstationPage() {
   const lines = (data?.lines ?? []) as WorkstationLine[];
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-lg border border-border bg-card p-6 shadow-[var(--shadow-card)]">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold tracking-widest text-primary uppercase">
-              Postazione
-            </div>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight">
-              {employee?.phase_name ?? data?.phase?.name}
-            </h1>
-          </div>
-          <div className="rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            Aggiornamento PLC ogni 2s
-          </div>
+    <PageShell>
+      <Surface className="p-6">
+        <div className="text-xs font-semibold tracking-widest text-primary uppercase">
+          Postazione
         </div>
-      </section>
+        <PageHeader
+          title={employee?.phase_name ?? data?.phase?.name ?? ""}
+          action={<StatusPill>Aggiornamento PLC ogni 2s</StatusPill>}
+        />
+      </Surface>
 
       <div className="grid gap-6 xl:grid-cols-2">
         {lines.map((line) => (
-          <LineCard key={line.id} line={line} busy={isLoading} onConfirm={() => onConfirm(line)} />
+          <LineCard
+            key={line.id}
+            line={line}
+            busy={isLoading}
+            onConfirm={() => onConfirm(line)}
+          />
         ))}
       </div>
 
-      <section className="rounded-lg border border-border bg-card p-5 shadow-[var(--shadow-card)]">
-        <h2 className="mb-4 text-sm font-semibold">Ultimi versamenti della fase</h2>
+      <Surface>
+        <h2 className="mb-4 text-sm font-semibold">
+          Ultimi versamenti della fase
+        </h2>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {(data?.recentReceipts ?? []).map((receipt) => (
-            <div key={receipt.id} className="rounded-md border border-border bg-background p-3">
+            <div
+              key={receipt.id}
+              className="rounded-md border border-border bg-background p-3"
+            >
               <div className="text-sm font-semibold">{receipt.line?.name}</div>
-              <div className="mt-1 font-mono text-xs text-muted-foreground">{receipt.label}</div>
+              <div className="mt-1 font-mono text-xs text-muted-foreground">
+                {receipt.label}
+              </div>
               <div className="mt-1.5 text-lg font-bold text-primary">
                 {receipt.quantity.toLocaleString("it-IT")} pz
               </div>
@@ -114,8 +128,8 @@ function WorkstationPage() {
             </div>
           )}
         </div>
-      </section>
-    </div>
+      </Surface>
+    </PageShell>
   );
 }
 
@@ -131,7 +145,7 @@ function LineCard({
   const canConfirm = !!line.latestEvent && !line.receipt;
 
   return (
-    <section className="rounded-lg border border-border bg-card p-6 shadow-[var(--shadow-card)]">
+    <Surface className="p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold">{line.name}</h2>
@@ -139,12 +153,17 @@ function LineCard({
             Uscita {line.output}
           </div>
         </div>
-        <HandshakeBadge ready={line.handshake.datoPronte} read={line.handshake.datoLetto} />
+        <HandshakeBadge
+          ready={line.handshake.datoPronte}
+          read={line.handshake.datoLetto}
+        />
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <Panel icon={PackageCheck} label="Quantità PLC">
-          {line.latestEvent ? `${line.latestEvent.quantity.toLocaleString("it-IT")} pz` : "-"}
+          {line.latestEvent
+            ? `${line.latestEvent.quantity.toLocaleString("it-IT")} pz`
+            : "-"}
         </Panel>
         <Panel icon={Clock} label="Etichetta lotto">
           {line.latestEvent?.label ?? "-"}
@@ -158,29 +177,32 @@ function LineCard({
         </div>
         <div className="text-base font-bold">{line.printer}</div>
         <div className="mt-1 text-sm text-muted-foreground">
-          Stato job: {line.printJob ? printStatusLabel(line.printJob.status) : "nessun job"}
+          Stato job:{" "}
+          {line.printJob
+            ? printStatusLabel(line.printJob.status)
+            : "nessun job"}
         </div>
         {line.printJob?.error_message && (
           <div className="mt-2 rounded-md bg-destructive/10 p-3 text-base font-semibold text-destructive">
-            {line.printJob.error_code ?? "ERRORE"} · {line.printJob.error_message}
+            {line.printJob.error_code ?? "ERRORE"} ·{" "}
+            {line.printJob.error_message}
           </div>
         )}
       </div>
 
-      <button
+      <PrimaryButton
         type="button"
         disabled={!canConfirm || busy}
         onClick={onConfirm}
         className={
           canConfirm
-            ? "mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-md bg-primary text-base font-bold text-primary-foreground shadow"
-            : "mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-md bg-muted text-base font-bold text-muted-foreground"
+            ? "mt-5 h-14 w-full text-base font-bold"
+            : "mt-5 h-14 w-full bg-muted text-base font-bold text-muted-foreground hover:opacity-100"
         }
       >
-        <CheckCircle2 className="h-5 w-5" />
         {line.receipt ? "VERSATO" : "VERSA ALLA FASE"}
-      </button>
-    </section>
+      </PrimaryButton>
+    </Surface>
   );
 }
 
@@ -212,10 +234,16 @@ function HandshakeBadge({ ready, read }: { ready: boolean; read: boolean }) {
       : ready
         ? "bg-amber-100 text-amber-800"
         : "bg-muted text-muted-foreground";
-  return <div className={`rounded-md px-2.5 py-1 text-xs font-semibold ${cls}`}>{label}</div>;
+  return (
+    <div className={`rounded-md px-2.5 py-1 text-xs font-semibold ${cls}`}>
+      {label}
+    </div>
+  );
 }
 
-function printStatusLabel(status: WorkstationLine["printJob"]["status"]) {
+function printStatusLabel(
+  status: NonNullable<WorkstationLine["printJob"]>["status"],
+) {
   if (status === "pending") return "in coda";
   if (status === "printing") return "in stampa";
   if (status === "printed") return "stampato";

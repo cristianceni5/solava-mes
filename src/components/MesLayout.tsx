@@ -1,7 +1,11 @@
-import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+  Link,
+  Outlet,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
 import { useEffect } from "react";
 import {
-  Factory,
   History,
   LayoutDashboard,
   LogOut,
@@ -43,7 +47,11 @@ export function MesLayout() {
     <div className="flex min-h-screen bg-background">
       <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card md:flex">
         <div className="border-b border-border px-4 py-4">
-          <img src="/brand/solava-logo.svg" alt="SOLAVA" className="h-8 w-auto" />
+          <img
+            src="/brand/solava-logo.svg"
+            alt="SOLAVA"
+            className="h-8 w-auto"
+          />
           <div className="mt-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
             MES Produzione · {employee.phase_name}
           </div>
@@ -93,8 +101,11 @@ export function MesLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-border bg-card px-6 py-3 md:hidden">
           <div className="flex items-center gap-3">
-            <Factory className="h-5 w-5 text-primary" />
-            <img src="/brand/solava-logo.svg" alt="SOLAVA" className="h-8 w-auto" />
+            <img
+              src="/brand/solava-logo.svg"
+              alt="SOLAVA"
+              className="h-8 w-auto"
+            />
           </div>
           <button
             onClick={() => {
@@ -116,7 +127,9 @@ export function MesLayout() {
                 to={item.to}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-xs font-medium whitespace-nowrap",
-                  active ? "bg-primary text-primary-foreground" : "text-foreground/70",
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground/70",
                 )}
               >
                 {item.label}

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
+import { PageHeader, PageShell, TableSurface } from "@/components/mes-ui";
 import { getCatalogs, getEmployeesList } from "@/lib/mes.functions";
 
 export const Route = createFileRoute("/_app/anagrafica")({
@@ -10,17 +11,21 @@ export const Route = createFileRoute("/_app/anagrafica")({
 function Anagrafica() {
   const fetchCat = useServerFn(getCatalogs);
   const fetchEmp = useServerFn(getEmployeesList);
-  const { data: cat } = useQuery({ queryKey: ["catalogs"], queryFn: () => fetchCat() });
-  const { data: emp } = useQuery({ queryKey: ["employees"], queryFn: () => fetchEmp() });
+  const { data: cat } = useQuery({
+    queryKey: ["catalogs"],
+    queryFn: () => fetchCat(),
+  });
+  const { data: emp } = useQuery({
+    queryKey: ["employees"],
+    queryFn: () => fetchEmp(),
+  });
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Anagrafiche</h1>
-        <p className="text-sm text-muted-foreground">
-          Dipendenti, prodotti e macchinari registrati nel MES
-        </p>
-      </div>
+    <PageShell className="space-y-8">
+      <PageHeader
+        title="Anagrafiche"
+        description="Dipendenti, prodotti e macchinari registrati nel MES"
+      />
 
       <Section title="Dipendenti">
         <table className="w-full text-sm">
@@ -38,7 +43,9 @@ function Anagrafica() {
                 <td className="px-4 py-2 font-mono">{employee.matricola}</td>
                 <td className="px-4 py-2">{employee.full_name}</td>
                 <td className="px-4 py-2 capitalize">{employee.role}</td>
-                <td className="px-4 py-2">{employee.active ? "Attivo" : "Disattivato"}</td>
+                <td className="px-4 py-2">
+                  {employee.active ? "Attivo" : "Disattivato"}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -92,17 +99,21 @@ function Anagrafica() {
           </tbody>
         </table>
       </Section>
-    </div>
+    </PageShell>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section>
       <h2 className="mb-3 text-lg font-semibold">{title}</h2>
-      <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-[var(--shadow-card)]">
-        {children}
-      </div>
+      <TableSurface>{children}</TableSurface>
     </section>
   );
 }

@@ -2,6 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import {
+  PageHeader,
+  PageShell,
+  TableSurface,
+  TextInput,
+} from "@/components/mes-ui";
 import { getDashboard } from "@/lib/mes.functions";
 import { useAuth } from "@/lib/auth";
 
@@ -34,21 +40,21 @@ function Storico() {
   }, [data, q]);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Storico versamenti</h1>
-          <p className="text-sm text-muted-foreground">Ultimi 50 versamenti registrati</p>
-        </div>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Filtra per prodotto, linea, operatore..."
-          className="w-72 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-        />
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Storico versamenti"
+        description="Ultimi 50 versamenti registrati"
+        action={
+          <TextInput
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Filtra per prodotto, linea, operatore..."
+            className="w-72"
+          />
+        }
+      />
 
-      <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-[var(--shadow-card)]">
+      <TableSurface>
         <table className="w-full text-sm">
           <thead className="bg-muted text-left text-xs text-muted-foreground uppercase">
             <tr>
@@ -69,28 +75,39 @@ function Storico() {
                 </td>
                 <td className="px-4 py-2">
                   {row.employees?.full_name}{" "}
-                  <span className="text-muted-foreground">({row.employees?.matricola})</span>
+                  <span className="text-muted-foreground">
+                    ({row.employees?.matricola})
+                  </span>
                 </td>
                 <td className="px-4 py-2">{row.products?.name}</td>
                 <td className="px-4 py-2">
                   {row.machines?.name}{" "}
-                  <span className="text-muted-foreground">· {row.machines?.line}</span>
+                  <span className="text-muted-foreground">
+                    · {row.machines?.line}
+                  </span>
                 </td>
-                <td className="px-4 py-2 text-right font-semibold">{row.quantity}</td>
-                <td className="px-4 py-2 text-right text-destructive">{row.scrap}</td>
+                <td className="px-4 py-2 text-right font-semibold">
+                  {row.quantity}
+                </td>
+                <td className="px-4 py-2 text-right text-destructive">
+                  {row.scrap}
+                </td>
                 <td className="px-4 py-2 capitalize">{row.shift}</td>
               </tr>
             ))}
             {!rows.length && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                <td
+                  colSpan={7}
+                  className="py-8 text-center text-muted-foreground"
+                >
                   Nessun versamento.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-      </div>
-    </div>
+      </TableSurface>
+    </PageShell>
   );
 }
