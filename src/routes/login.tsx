@@ -55,7 +55,9 @@ function LoginPage() {
       navigate({ to: "/" });
     } catch (err) {
       console.error(err);
-      toast.error("Errore di rete");
+      toast.error(
+        "Problema: il MES non riesce a comunicare con il server. Codice errore: MES-RETE-LOGIN.",
+      );
     } finally {
       setBusy(false);
     }

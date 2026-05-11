@@ -144,20 +144,51 @@ export function StatCard({
   icon: Icon,
   label,
   value,
+  tone = "neutral",
 }: {
   icon?: LucideIcon;
   label: string;
   value: string;
+  tone?: "neutral" | "ok" | "warning" | "error";
 }) {
+  const toneClassName =
+    tone === "ok"
+      ? "border-emerald-200 bg-emerald-50"
+      : tone === "warning"
+        ? "border-amber-200 bg-amber-50"
+        : tone === "error"
+          ? "border-destructive/40 bg-destructive/5"
+          : undefined;
+  const valueClassName =
+    tone === "ok"
+      ? "text-emerald-800"
+      : tone === "warning"
+        ? "text-amber-800"
+        : tone === "error"
+          ? "text-destructive"
+          : undefined;
+  const iconClassName =
+    tone === "ok"
+      ? "text-emerald-700"
+      : tone === "warning"
+        ? "text-amber-700"
+        : tone === "error"
+          ? "text-destructive"
+          : "text-primary";
+
   return (
-    <Surface>
+    <Surface className={toneClassName}>
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           {label}
         </span>
-        {Icon && <Icon className="h-4 w-4 text-primary" />}
+        {Icon && <Icon className={cn("h-4 w-4", iconClassName)} />}
       </div>
-      <div className="mt-3 text-3xl font-bold tracking-tight">{value}</div>
+      <div
+        className={cn("mt-3 text-3xl font-bold tracking-tight", valueClassName)}
+      >
+        {value}
+      </div>
     </Surface>
   );
 }

@@ -3,10 +3,12 @@ CREATE TABLE dbo.operators (
   matricola nvarchar(20) NOT NULL,
   pin_hash varbinary(32) NOT NULL,
   full_name nvarchar(120) NOT NULL,
+  role nvarchar(20) NOT NULL CONSTRAINT df_operators_role DEFAULT 'operatore',
   active bit NOT NULL CONSTRAINT df_operators_active DEFAULT 1,
   created_at datetime2(3) NOT NULL CONSTRAINT df_operators_created_at DEFAULT sysdatetime(),
   CONSTRAINT pk_operators PRIMARY KEY (id),
-  CONSTRAINT uq_operators_matricola UNIQUE (matricola)
+  CONSTRAINT uq_operators_matricola UNIQUE (matricola),
+  CONSTRAINT ck_operators_role CHECK (role in ('operatore', 'magazziniere', 'caporeparto', 'admin'))
 );
 
 CREATE TABLE dbo.plc_events (
@@ -47,6 +49,26 @@ CREATE TABLE dbo.phase_receipts (
 
 CREATE INDEX ix_phase_receipts_phase_created ON dbo.phase_receipts(phase_id, created_at DESC);
 
+CREATE TABLE dbo.inventory_packages (
+  id uniqueidentifier NOT NULL CONSTRAINT df_inventory_packages_id DEFAULT newid(),
+  plc_event_id uniqueidentifier NOT NULL,
+  code nvarchar(100) NOT NULL,
+  line_id nvarchar(20) NOT NULL,
+  quantity int NOT NULL,
+  status nvarchar(20) NOT NULL CONSTRAINT df_inventory_packages_status DEFAULT 'in_stock',
+  location nvarchar(80) NULL,
+  created_at datetime2(3) NOT NULL CONSTRAINT df_inventory_packages_created_at DEFAULT sysdatetime(),
+  updated_at datetime2(3) NOT NULL CONSTRAINT df_inventory_packages_updated_at DEFAULT sysdatetime(),
+  CONSTRAINT pk_inventory_packages PRIMARY KEY (id),
+  CONSTRAINT fk_inventory_packages_event FOREIGN KEY (plc_event_id) REFERENCES dbo.plc_events(id),
+  CONSTRAINT uq_inventory_packages_code UNIQUE (code),
+  CONSTRAINT ck_inventory_packages_line CHECK (line_id in ('mattoni', 'tegole')),
+  CONSTRAINT ck_inventory_packages_quantity CHECK (quantity > 0),
+  CONSTRAINT ck_inventory_packages_status CHECK (status in ('in_stock', 'in_lavorazione', 'spedito', 'anomalia'))
+);
+
+CREATE INDEX ix_inventory_packages_status_created ON dbo.inventory_packages(status, created_at DESC);
+
 CREATE TABLE dbo.print_jobs (
   id uniqueidentifier NOT NULL CONSTRAINT df_print_jobs_id DEFAULT newid(),
   plc_event_id uniqueidentifier NOT NULL,
@@ -68,6 +90,22 @@ CREATE TABLE dbo.print_jobs (
 );
 
 CREATE INDEX ix_print_jobs_pickup ON dbo.print_jobs(status, created_at);
+
+CREATE TABLE dbo.audit_log (
+  id bigint IDENTITY(1,1) NOT NULL,
+  operator_id uniqueidentifier NULL,
+  action nvarchar(60) NOT NULL,
+  entity nvarchar(60) NULL,
+  entity_id nvarchar(100) NULL,
+  payload nvarchar(max) NULL,
+  ip nvarchar(45) NULL,
+  created_at datetime2(3) NOT NULL CONSTRAINT df_audit_log_created_at DEFAULT sysdatetime(),
+  CONSTRAINT pk_audit_log PRIMARY KEY (id),
+  CONSTRAINT fk_audit_log_operator FOREIGN KEY (operator_id) REFERENCES dbo.operators(id)
+);
+
+CREATE INDEX ix_audit_log_created ON dbo.audit_log(created_at DESC);
+CREATE INDEX ix_audit_log_entity ON dbo.audit_log(entity, entity_id, created_at DESC);
 
 INSERT INTO dbo.operators (matricola, pin_hash, full_name) VALUES
   ('1001', hashbytes('SHA2_256', '1001:1234'), 'Operatore Verde'),

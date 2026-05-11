@@ -16,7 +16,14 @@ import { Route as AppVersamentoRouteImport } from './routes/_app.versamento'
 import { Route as AppStoricoRouteImport } from './routes/_app.storico'
 import { Route as AppStampeRouteImport } from './routes/_app.stampe'
 import { Route as AppSpedizioniRouteImport } from './routes/_app.spedizioni'
+import { Route as AppRicettarioRouteImport } from './routes/_app.ricettario'
+import { Route as AppMagazzinoRouteImport } from './routes/_app.magazzino'
+import { Route as AppDiagnosticaRouteImport } from './routes/_app.diagnostica'
 import { Route as AppAnagraficaRouteImport } from './routes/_app.anagrafica'
+import { Route as AppDiagnosticaIndexRouteImport } from './routes/_app.diagnostica.index'
+import { Route as AppDiagnosticaLogRouteImport } from './routes/_app.diagnostica.log'
+import { Route as AppDiagnosticaErroriRouteImport } from './routes/_app.diagnostica.errori'
+import { Route as AppDiagnosticaCodiciErroriRouteImport } from './routes/_app.diagnostica.codici-errori'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -52,40 +59,96 @@ const AppSpedizioniRoute = AppSpedizioniRouteImport.update({
   path: '/spedizioni',
   getParentRoute: () => AppRoute,
 } as any)
+const AppRicettarioRoute = AppRicettarioRouteImport.update({
+  id: '/ricettario',
+  path: '/ricettario',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMagazzinoRoute = AppMagazzinoRouteImport.update({
+  id: '/magazzino',
+  path: '/magazzino',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDiagnosticaRoute = AppDiagnosticaRouteImport.update({
+  id: '/diagnostica',
+  path: '/diagnostica',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAnagraficaRoute = AppAnagraficaRouteImport.update({
   id: '/anagrafica',
   path: '/anagrafica',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDiagnosticaIndexRoute = AppDiagnosticaIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppDiagnosticaRoute,
+} as any)
+const AppDiagnosticaLogRoute = AppDiagnosticaLogRouteImport.update({
+  id: '/log',
+  path: '/log',
+  getParentRoute: () => AppDiagnosticaRoute,
+} as any)
+const AppDiagnosticaErroriRoute = AppDiagnosticaErroriRouteImport.update({
+  id: '/errori',
+  path: '/errori',
+  getParentRoute: () => AppDiagnosticaRoute,
+} as any)
+const AppDiagnosticaCodiciErroriRoute =
+  AppDiagnosticaCodiciErroriRouteImport.update({
+    id: '/codici-errori',
+    path: '/codici-errori',
+    getParentRoute: () => AppDiagnosticaRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
   '/anagrafica': typeof AppAnagraficaRoute
+  '/diagnostica': typeof AppDiagnosticaRouteWithChildren
+  '/magazzino': typeof AppMagazzinoRoute
+  '/ricettario': typeof AppRicettarioRoute
   '/spedizioni': typeof AppSpedizioniRoute
   '/stampe': typeof AppStampeRoute
   '/storico': typeof AppStoricoRoute
   '/versamento': typeof AppVersamentoRoute
+  '/diagnostica/codici-errori': typeof AppDiagnosticaCodiciErroriRoute
+  '/diagnostica/errori': typeof AppDiagnosticaErroriRoute
+  '/diagnostica/log': typeof AppDiagnosticaLogRoute
+  '/diagnostica/': typeof AppDiagnosticaIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/anagrafica': typeof AppAnagraficaRoute
+  '/magazzino': typeof AppMagazzinoRoute
+  '/ricettario': typeof AppRicettarioRoute
   '/spedizioni': typeof AppSpedizioniRoute
   '/stampe': typeof AppStampeRoute
   '/storico': typeof AppStoricoRoute
   '/versamento': typeof AppVersamentoRoute
   '/': typeof AppIndexRoute
+  '/diagnostica/codici-errori': typeof AppDiagnosticaCodiciErroriRoute
+  '/diagnostica/errori': typeof AppDiagnosticaErroriRoute
+  '/diagnostica/log': typeof AppDiagnosticaLogRoute
+  '/diagnostica': typeof AppDiagnosticaIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/anagrafica': typeof AppAnagraficaRoute
+  '/_app/diagnostica': typeof AppDiagnosticaRouteWithChildren
+  '/_app/magazzino': typeof AppMagazzinoRoute
+  '/_app/ricettario': typeof AppRicettarioRoute
   '/_app/spedizioni': typeof AppSpedizioniRoute
   '/_app/stampe': typeof AppStampeRoute
   '/_app/storico': typeof AppStoricoRoute
   '/_app/versamento': typeof AppVersamentoRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/diagnostica/codici-errori': typeof AppDiagnosticaCodiciErroriRoute
+  '/_app/diagnostica/errori': typeof AppDiagnosticaErroriRoute
+  '/_app/diagnostica/log': typeof AppDiagnosticaLogRoute
+  '/_app/diagnostica/': typeof AppDiagnosticaIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -93,29 +156,49 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/anagrafica'
+    | '/diagnostica'
+    | '/magazzino'
+    | '/ricettario'
     | '/spedizioni'
     | '/stampe'
     | '/storico'
     | '/versamento'
+    | '/diagnostica/codici-errori'
+    | '/diagnostica/errori'
+    | '/diagnostica/log'
+    | '/diagnostica/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
     | '/anagrafica'
+    | '/magazzino'
+    | '/ricettario'
     | '/spedizioni'
     | '/stampe'
     | '/storico'
     | '/versamento'
     | '/'
+    | '/diagnostica/codici-errori'
+    | '/diagnostica/errori'
+    | '/diagnostica/log'
+    | '/diagnostica'
   id:
     | '__root__'
     | '/_app'
     | '/login'
     | '/_app/anagrafica'
+    | '/_app/diagnostica'
+    | '/_app/magazzino'
+    | '/_app/ricettario'
     | '/_app/spedizioni'
     | '/_app/stampe'
     | '/_app/storico'
     | '/_app/versamento'
     | '/_app/'
+    | '/_app/diagnostica/codici-errori'
+    | '/_app/diagnostica/errori'
+    | '/_app/diagnostica/log'
+    | '/_app/diagnostica/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -174,6 +257,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSpedizioniRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/ricettario': {
+      id: '/_app/ricettario'
+      path: '/ricettario'
+      fullPath: '/ricettario'
+      preLoaderRoute: typeof AppRicettarioRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/magazzino': {
+      id: '/_app/magazzino'
+      path: '/magazzino'
+      fullPath: '/magazzino'
+      preLoaderRoute: typeof AppMagazzinoRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/diagnostica': {
+      id: '/_app/diagnostica'
+      path: '/diagnostica'
+      fullPath: '/diagnostica'
+      preLoaderRoute: typeof AppDiagnosticaRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/anagrafica': {
       id: '/_app/anagrafica'
       path: '/anagrafica'
@@ -181,11 +285,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnagraficaRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/diagnostica/': {
+      id: '/_app/diagnostica/'
+      path: '/'
+      fullPath: '/diagnostica/'
+      preLoaderRoute: typeof AppDiagnosticaIndexRouteImport
+      parentRoute: typeof AppDiagnosticaRoute
+    }
+    '/_app/diagnostica/log': {
+      id: '/_app/diagnostica/log'
+      path: '/log'
+      fullPath: '/diagnostica/log'
+      preLoaderRoute: typeof AppDiagnosticaLogRouteImport
+      parentRoute: typeof AppDiagnosticaRoute
+    }
+    '/_app/diagnostica/errori': {
+      id: '/_app/diagnostica/errori'
+      path: '/errori'
+      fullPath: '/diagnostica/errori'
+      preLoaderRoute: typeof AppDiagnosticaErroriRouteImport
+      parentRoute: typeof AppDiagnosticaRoute
+    }
+    '/_app/diagnostica/codici-errori': {
+      id: '/_app/diagnostica/codici-errori'
+      path: '/codici-errori'
+      fullPath: '/diagnostica/codici-errori'
+      preLoaderRoute: typeof AppDiagnosticaCodiciErroriRouteImport
+      parentRoute: typeof AppDiagnosticaRoute
+    }
   }
 }
 
+interface AppDiagnosticaRouteChildren {
+  AppDiagnosticaCodiciErroriRoute: typeof AppDiagnosticaCodiciErroriRoute
+  AppDiagnosticaErroriRoute: typeof AppDiagnosticaErroriRoute
+  AppDiagnosticaLogRoute: typeof AppDiagnosticaLogRoute
+  AppDiagnosticaIndexRoute: typeof AppDiagnosticaIndexRoute
+}
+
+const AppDiagnosticaRouteChildren: AppDiagnosticaRouteChildren = {
+  AppDiagnosticaCodiciErroriRoute: AppDiagnosticaCodiciErroriRoute,
+  AppDiagnosticaErroriRoute: AppDiagnosticaErroriRoute,
+  AppDiagnosticaLogRoute: AppDiagnosticaLogRoute,
+  AppDiagnosticaIndexRoute: AppDiagnosticaIndexRoute,
+}
+
+const AppDiagnosticaRouteWithChildren = AppDiagnosticaRoute._addFileChildren(
+  AppDiagnosticaRouteChildren,
+)
+
 interface AppRouteChildren {
   AppAnagraficaRoute: typeof AppAnagraficaRoute
+  AppDiagnosticaRoute: typeof AppDiagnosticaRouteWithChildren
+  AppMagazzinoRoute: typeof AppMagazzinoRoute
+  AppRicettarioRoute: typeof AppRicettarioRoute
   AppSpedizioniRoute: typeof AppSpedizioniRoute
   AppStampeRoute: typeof AppStampeRoute
   AppStoricoRoute: typeof AppStoricoRoute
@@ -195,6 +348,9 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAnagraficaRoute: AppAnagraficaRoute,
+  AppDiagnosticaRoute: AppDiagnosticaRouteWithChildren,
+  AppMagazzinoRoute: AppMagazzinoRoute,
+  AppRicettarioRoute: AppRicettarioRoute,
   AppSpedizioniRoute: AppSpedizioniRoute,
   AppStampeRoute: AppStampeRoute,
   AppStoricoRoute: AppStoricoRoute,

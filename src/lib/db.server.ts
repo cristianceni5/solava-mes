@@ -11,7 +11,7 @@ function getConnectionString() {
   const value = process.env.SQLSERVER_CONNECTION_STRING;
   if (!value) {
     throw new Error(
-      "Missing SQLSERVER_CONNECTION_STRING. Set it to the local SQL Server connection string.",
+      "Problema: connessione SQL Server non configurata. Codice errore: DB-CONFIG-MANCANTE. Imposta SQLSERVER_CONNECTION_STRING.",
     );
   }
   return value;
@@ -19,10 +19,12 @@ function getConnectionString() {
 
 function getPool() {
   if (!poolPromise) {
-    poolPromise = new sql.ConnectionPool(getConnectionString()).connect().catch((error) => {
-      poolPromise = undefined;
-      throw error;
-    });
+    poolPromise = new sql.ConnectionPool(getConnectionString())
+      .connect()
+      .catch((error) => {
+        poolPromise = undefined;
+        throw error;
+      });
   }
   return poolPromise;
 }
@@ -48,7 +50,11 @@ function bindValue(request: sql.Request, name: string, value: unknown) {
     request.input(name, sql.DateTime2, value);
     return;
   }
-  request.input(name, sql.NVarChar(sql.MAX), value == null ? null : String(value));
+  request.input(
+    name,
+    sql.NVarChar(sql.MAX),
+    value == null ? null : String(value),
+  );
 }
 
 export async function query<T = unknown>(
@@ -63,7 +69,8 @@ export async function query<T = unknown>(
   const rows = result.recordset ?? [];
   return {
     rows,
-    rowCount: result.rowsAffected.reduce((sum, count) => sum + count, 0) || rows.length,
+    rowCount:
+      result.rowsAffected.reduce((sum, count) => sum + count, 0) || rows.length,
   };
 }
 
@@ -74,7 +81,7 @@ export function asIso(value: Date | string | null) {
 
 export function describeDatabaseError(error: unknown) {
   if (!error || typeof error !== "object") {
-    return "Errore database non classificato";
+    return "Problema: errore database non classificato. Codice errore: DB-SCONOSCIUTO.";
   }
 
   const fields = error as {
@@ -88,23 +95,26 @@ export function describeDatabaseError(error: unknown) {
   const message = String(fields.message ?? fields.originalError?.message ?? "");
 
   if (code === "ESOCKET") {
-    return "SQL Server non raggiungibile. Verifica server/IP, porta TCP 1433, servizio SQL Server attivo e firewall Windows.";
+    return "Problema: SQL Server non raggiungibile. Verifica server/IP, porta TCP 1433, servizio SQL Server attivo e firewall Windows. Codice errore: DB-ESOCKET.";
   }
   if (code === "ELOGIN") {
-    return "Login SQL Server rifiutato. Verifica utente, password, database e modalità autenticazione SQL.";
+    return "Problema: login SQL Server rifiutato. Verifica utente, password, database e modalità autenticazione SQL. Codice errore: DB-ELOGIN.";
   }
   if (code === "ETIMEOUT") {
-    return "Timeout verso SQL Server. La rete o il server non rispondono entro il tempo previsto.";
+    return "Problema: timeout verso SQL Server. La rete o il server non rispondono entro il tempo previsto. Codice errore: DB-ETIMEOUT.";
   }
   if (code === "ENOTOPEN") {
-    return "Connessione SQL Server non aperta. Riprova o riavvia il servizio applicativo.";
+    return "Problema: connessione SQL Server non aperta. Riprova o riavvia il servizio applicativo. Codice errore: DB-ENOTOPEN.";
   }
   if (fields.number === 208) {
-    return "Tabella o vista SQL Server mancante. Verifica che lo schema del database sia stato applicato.";
+    return "Problema: tabella o vista SQL Server mancante. Verifica che lo schema del database sia stato applicato. Codice errore: DB-208.";
   }
   if (fields.number === 2812 || message.includes("verify_employee_pin")) {
-    return "Funzione dbo.verify_employee_pin mancante. Applica o aggiorna lo schema del database.";
+    return "Problema: funzione dbo.verify_employee_pin mancante. Applica o aggiorna lo schema del database. Codice errore: DB-2812.";
   }
 
-  return message || `Errore SQL Server${code ? ` (${code})` : ""}`;
+  const errorCode = code || String(fields.number ?? "GENERICO");
+  return message
+    ? `Problema: errore SQL Server. ${message}. Codice errore: DB-${errorCode}.`
+    : `Problema: errore SQL Server. Codice errore: DB-${errorCode}.`;
 }

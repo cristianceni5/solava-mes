@@ -71,7 +71,9 @@ function Versamento() {
       qc.invalidateQueries({ queryKey: ["history"] });
     } catch (err) {
       console.error(err);
-      toast.error("Errore di rete");
+      toast.error(
+        "Problema: il MES non riesce a salvare il versamento. Codice errore: MES-RETE-VERSAMENTO.",
+      );
     } finally {
       setBusy(false);
     }

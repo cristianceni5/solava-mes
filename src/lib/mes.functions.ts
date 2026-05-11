@@ -3,10 +3,13 @@ import { z } from "zod";
 import { productionPhases } from "@/lib/mes-v1";
 import {
   getLoginOptions,
+  getInventoryOverview,
   getPlcPrintQueue,
+  getSystemDiagnostics,
   getWorkstation,
   loginOperator,
   submitPhaseReceipt,
+  updateInventoryPackage,
 } from "@/lib/mes-v1.server";
 
 type Employee = {
@@ -24,6 +27,24 @@ type Product = {
   name: string;
   type: string;
   unit: string;
+};
+
+type Recipe = {
+  id: string;
+  code: string;
+  description: string;
+  type: "imballo" | "lavorazione";
+  line: "mattoni" | "tegole";
+  version: number;
+  active: boolean;
+  payload: {
+    product_code: string;
+    target_quantity: number;
+    cycle_seconds: number;
+    material_checks: string[];
+    packaging?: string;
+  };
+  updated_at: string;
 };
 
 type Machine = {
@@ -63,6 +84,7 @@ type Shipment = {
 type Store = {
   employees: Employee[];
   products: Product[];
+  recipes: Recipe[];
   machines: Machine[];
   productionEntries: ProductionEntry[];
   shipments: Shipment[];
@@ -128,6 +150,57 @@ function store() {
         unit: "pz",
       },
     ],
+    recipes: [
+      {
+        id: "cccccccc-cccc-4ccc-8ccc-ccccccccccc1",
+        code: "RIC-MAT-COTTO-001",
+        description: "Mattone cotto toscano - ciclo standard",
+        type: "lavorazione",
+        line: "mattoni",
+        version: 1,
+        active: true,
+        payload: {
+          product_code: "MT-COTTO",
+          target_quantity: 1280,
+          cycle_seconds: 42,
+          material_checks: ["argilla", "umidita", "taglio"],
+        },
+        updated_at: now(),
+      },
+      {
+        id: "cccccccc-cccc-4ccc-8ccc-ccccccccccc2",
+        code: "RIC-TEG-COPPO-001",
+        description: "Tegola in cotto - ciclo standard",
+        type: "lavorazione",
+        line: "tegole",
+        version: 1,
+        active: true,
+        payload: {
+          product_code: "TG-COPPO",
+          target_quantity: 640,
+          cycle_seconds: 55,
+          material_checks: ["impasto", "pressatura", "essiccazione"],
+        },
+        updated_at: now(),
+      },
+      {
+        id: "cccccccc-cccc-4ccc-8ccc-ccccccccccc3",
+        code: "RIC-IMB-PALLET-001",
+        description: "Imballo pallet standard",
+        type: "imballo",
+        line: "mattoni",
+        version: 2,
+        active: true,
+        payload: {
+          product_code: "MT-COTTO",
+          target_quantity: 960,
+          cycle_seconds: 30,
+          material_checks: ["pallet", "film", "reggetta"],
+          packaging: "pallet 120x100",
+        },
+        updated_at: now(),
+      },
+    ],
     machines: [
       {
         id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
@@ -187,15 +260,36 @@ const loginSchema = z.object({
 
 export const loginEmployee = createServerFn({ method: "POST" })
   .inputValidator((data) => loginSchema.parse(data))
-  .handler(async ({ data }) => loginOperator(data.matricola, data.pin, data.phase_id));
+  .handler(async ({ data }) =>
+    loginOperator(data.matricola, data.pin, data.phase_id),
+  );
 
-export const getMesOptions = createServerFn({ method: "GET" }).handler(async () =>
-  getLoginOptions(),
+export const getMesOptions = createServerFn({ method: "GET" }).handler(
+  async () => getLoginOptions(),
 );
 
-export const getPrintQueue = createServerFn({ method: "GET" }).handler(async () =>
-  getPlcPrintQueue(),
+export const getPrintQueue = createServerFn({ method: "GET" }).handler(
+  async () => getPlcPrintQueue(),
 );
+
+export const getInventory = createServerFn({ method: "GET" }).handler(
+  async () => getInventoryOverview(),
+);
+
+export const getDiagnostics = createServerFn({ method: "GET" }).handler(
+  async () => getSystemDiagnostics(),
+);
+
+const inventoryUpdateSchema = z.object({
+  package_id: z.string().uuid(),
+  operator_id: z.string().uuid(),
+  status: z.enum(["in_stock", "in_lavorazione", "spedito", "anomalia"]),
+  location: z.string().trim().max(80).optional().nullable(),
+});
+
+export const updateInventory = createServerFn({ method: "POST" })
+  .inputValidator((data) => inventoryUpdateSchema.parse(data))
+  .handler(async ({ data }) => updateInventoryPackage(data));
 
 const workstationSchema = z.object({
   phase_id: z.enum(phaseIds),
@@ -216,10 +310,29 @@ export const confirmPhaseReceipt = createServerFn({ method: "POST" })
   .inputValidator((data) => phaseReceiptSchema.parse(data))
   .handler(async ({ data }) => submitPhaseReceipt(data));
 
-export const getCatalogs = createServerFn({ method: "GET" }).handler(async () => {
-  const db = store();
-  return { products: db.products, machines: db.machines };
-});
+export const getCatalogs = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const db = store();
+    return { products: db.products, machines: db.machines };
+  },
+);
+
+export const getRecipes = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const db = store();
+    return {
+      recipes: db.recipes,
+      kpi: {
+        total: db.recipes.length,
+        active: db.recipes.filter((recipe) => recipe.active).length,
+        working: db.recipes.filter((recipe) => recipe.type === "lavorazione")
+          .length,
+        packaging: db.recipes.filter((recipe) => recipe.type === "imballo")
+          .length,
+      },
+    };
+  },
+);
 
 const entrySchema = z.object({
   employee_id: z.string().uuid(),
@@ -235,10 +348,18 @@ export const submitProduction = createServerFn({ method: "POST" })
   .inputValidator((data) => entrySchema.parse(data))
   .handler(async ({ data }) => {
     const db = store();
-    if (!db.employees.some((employee) => employee.id === data.employee_id && employee.active)) {
+    if (
+      !db.employees.some(
+        (employee) => employee.id === data.employee_id && employee.active,
+      )
+    ) {
       return { ok: false as const, error: "Dipendente non valido" };
     }
-    db.productionEntries.unshift({ ...data, id: crypto.randomUUID(), created_at: now() });
+    db.productionEntries.unshift({
+      ...data,
+      id: crypto.randomUUID(),
+      created_at: now(),
+    });
     return { ok: true as const };
   });
 
@@ -248,9 +369,17 @@ export const getDashboard = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = store();
-    const recent = db.productionEntries.slice(0, 50).map((entry) => rowForEntry(entry));
-    const totalQty = db.productionEntries.reduce((sum, entry) => sum + entry.quantity, 0);
-    const totalScrap = db.productionEntries.reduce((sum, entry) => sum + entry.scrap, 0);
+    const recent = db.productionEntries
+      .slice(0, 50)
+      .map((entry) => rowForEntry(entry));
+    const totalQty = db.productionEntries.reduce(
+      (sum, entry) => sum + entry.quantity,
+      0,
+    );
+    const totalScrap = db.productionEntries.reduce(
+      (sum, entry) => sum + entry.scrap,
+      0,
+    );
     const byMachine = db.machines
       .map((machine) => ({
         line: machine.line,
@@ -266,7 +395,9 @@ export const getDashboard = createServerFn({ method: "POST" })
         totalQty,
         totalScrap,
         scrapRate:
-          totalQty > 0 ? Math.round((totalScrap / (totalQty + totalScrap)) * 1000) / 10 : 0,
+          totalQty > 0
+            ? Math.round((totalScrap / (totalQty + totalScrap)) * 1000) / 10
+            : 0,
         entries24h: db.productionEntries.length,
       },
       byMachine,
@@ -292,13 +423,18 @@ function rowForEntry(entry: ProductionEntry) {
     ...entry,
     products: { name: product?.name, code: product?.code, unit: product?.unit },
     machines: { name: machine?.name, line: machine?.line, plc: machine?.plc },
-    employees: { full_name: employee?.full_name, matricola: employee?.matricola },
+    employees: {
+      full_name: employee?.full_name,
+      matricola: employee?.matricola,
+    },
   };
 }
 
-export const getEmployeesList = createServerFn({ method: "GET" }).handler(async () => {
-  return { employees: store().employees };
-});
+export const getEmployeesList = createServerFn({ method: "GET" }).handler(
+  async () => {
+    return { employees: store().employees };
+  },
+);
 
 const shipmentSchema = z.object({
   bolla_number: z.string().trim().min(1).max(30),
@@ -317,10 +453,14 @@ export const createShipment = createServerFn({ method: "POST" })
     if (
       db.shipments.some(
         (item) =>
-          item.bolla_number === data.bolla_number && item.carro_number === data.carro_number,
+          item.bolla_number === data.bolla_number &&
+          item.carro_number === data.carro_number,
       )
     ) {
-      return { ok: false as const, error: "Bolla + carro già esistente (duplicato)" };
+      return {
+        ok: false as const,
+        error: "Bolla + carro già esistente (duplicato)",
+      };
     }
     db.shipments.unshift({
       ...data,
@@ -331,22 +471,35 @@ export const createShipment = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
-export const getShipments = createServerFn({ method: "GET" }).handler(async () => {
-  const db = store();
-  const shipments = db.shipments.map((shipment) => {
-    const product = db.products.find((item) => item.id === shipment.product_id);
-    const employee = db.employees.find((item) => item.id === shipment.employee_id);
+export const getShipments = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const db = store();
+    const shipments = db.shipments.map((shipment) => {
+      const product = db.products.find(
+        (item) => item.id === shipment.product_id,
+      );
+      const employee = db.employees.find(
+        (item) => item.id === shipment.employee_id,
+      );
+      return {
+        ...shipment,
+        products: {
+          name: product?.name,
+          code: product?.code,
+          unit: product?.unit,
+        },
+        employees: {
+          full_name: employee?.full_name,
+          matricola: employee?.matricola,
+        },
+      };
+    });
     return {
-      ...shipment,
-      products: { name: product?.name, code: product?.code, unit: product?.unit },
-      employees: { full_name: employee?.full_name, matricola: employee?.matricola },
+      shipments,
+      kpi: {
+        count24h: shipments.length,
+        qty24h: shipments.reduce((sum, shipment) => sum + shipment.quantity, 0),
+      },
     };
-  });
-  return {
-    shipments,
-    kpi: {
-      count24h: shipments.length,
-      qty24h: shipments.reduce((sum, shipment) => sum + shipment.quantity, 0),
-    },
-  };
-});
+  },
+);

@@ -1,251 +1,304 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { Clock, PackageCheck, Printer } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  BookOpen,
+  Database,
+  PackageCheck,
+  PackagePlus,
+  Printer,
+  Radio,
+  Truck,
+  Warehouse,
+} from "lucide-react";
 import {
   PageHeader,
   PageShell,
-  PrimaryButton,
+  StatCard,
   StatusPill,
   Surface,
 } from "@/components/mes-ui";
-import { confirmPhaseReceipt, getPhaseWorkstation } from "@/lib/mes.functions";
+import {
+  getDiagnostics,
+  getInventory,
+  getPrintQueue,
+} from "@/lib/mes.functions";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/")({
-  component: WorkstationPage,
+  component: DashboardPage,
 });
 
-type WorkstationLine = {
-  id: "mattoni" | "tegole";
-  name: string;
-  output: string;
-  printer: string;
-  handshake: {
-    datoPronte: boolean;
-    datoLetto: boolean;
-    lastLabel: string | null;
-    updatedAt: string | null;
-  };
-  latestEvent: {
-    id: string;
-    quantity: number;
-    label: string;
-    received_at: string;
-  } | null;
-  receipt: { id: string; created_at: string } | null;
-  printJob: {
-    status: "pending" | "printing" | "printed" | "failed";
-    attempts: number;
-    error_code: string | null;
-    error_message: string | null;
-  } | null;
-};
-
-function WorkstationPage() {
+function DashboardPage() {
   const { employee } = useAuth();
-  const qc = useQueryClient();
-  const fetchWorkstation = useServerFn(getPhaseWorkstation);
-  const confirmReceipt = useServerFn(confirmPhaseReceipt);
+  const fetchDiagnostics = useServerFn(getDiagnostics);
+  const fetchPrintQueue = useServerFn(getPrintQueue);
+  const fetchInventory = useServerFn(getInventory);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["workstation", employee?.phase_id],
-    queryFn: () =>
-      fetchWorkstation({ data: { phase_id: employee!.phase_id as never } }),
-    enabled: !!employee,
-    refetchInterval: 2_000,
+  const { data: diagnostics } = useQuery({
+    queryKey: ["dashboard", "diagnostics"],
+    queryFn: () => fetchDiagnostics(),
+    refetchInterval: 5_000,
+  });
+  const { data: printQueue } = useQuery({
+    queryKey: ["dashboard", "print-queue"],
+    queryFn: () => fetchPrintQueue(),
+    refetchInterval: 5_000,
+  });
+  const { data: inventory } = useQuery({
+    queryKey: ["dashboard", "inventory"],
+    queryFn: () => fetchInventory(),
+    refetchInterval: 15_000,
   });
 
-  async function onConfirm(line: WorkstationLine) {
-    if (!employee || !line.latestEvent) return;
-    const res = await confirmReceipt({
-      data: {
-        employee_id: employee.id,
-        phase_id: employee.phase_id as never,
-        line_id: line.id,
-        plc_event_id: line.latestEvent.id,
-      },
-    });
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
-    toast.success(`Versamento registrato · ${line.name}`);
-    qc.invalidateQueries({ queryKey: ["workstation", employee.phase_id] });
-  }
-
-  const lines = (data?.lines ?? []) as WorkstationLine[];
+  const failedPrints = printQueue?.kpi.failed ?? 0;
+  const pendingPrints = printQueue?.kpi.pending ?? 0;
+  const inventoryAnomalies = inventory?.kpi.anomalies ?? 0;
+  const sqlOk = diagnostics?.sql.ok ?? false;
+  const openIssues =
+    (sqlOk ? 0 : 1) +
+    failedPrints +
+    inventoryAnomalies +
+    (diagnostics?.counters.duplicatePlcEvents ?? 0);
 
   return (
-    <PageShell>
-      <Surface className="p-6">
-        <div className="text-xs font-semibold tracking-widest text-primary uppercase">
-          Postazione
-        </div>
-        <PageHeader
-          title={employee?.phase_name ?? data?.phase?.name ?? ""}
-          action={<StatusPill>Aggiornamento PLC ogni 2s</StatusPill>}
-        />
-      </Surface>
+    <PageShell className="max-w-none">
+      <PageHeader
+        title="Dashboard operativa"
+        description={`Accesso rapido e stato impianto · ${employee?.full_name ?? "operatore"} · ${employee?.phase_name ?? "fase non selezionata"}`}
+        action={<StatusPill icon={Radio}>Aggiornamento automatico</StatusPill>}
+      />
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        {lines.map((line) => (
-          <LineCard
-            key={line.id}
-            line={line}
-            busy={isLoading}
-            onConfirm={() => onConfirm(line)}
-          />
-        ))}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard
+          icon={AlertTriangle}
+          label="Problemi aperti"
+          value={String(openIssues)}
+          tone={openIssues > 0 ? "error" : "ok"}
+        />
+        <StatCard
+          icon={Database}
+          label="SQL Server"
+          value={sqlOk ? "OK" : "Errore"}
+          tone={sqlOk ? "ok" : "error"}
+        />
+        <StatCard
+          icon={Printer}
+          label="Stampe in coda"
+          value={String(pendingPrints)}
+          tone={pendingPrints > 20 ? "warning" : "neutral"}
+        />
+        <StatCard
+          icon={PackageCheck}
+          label="Pacchi tracciati"
+          value={String(inventory?.kpi.total ?? 0)}
+        />
+        <StatCard
+          icon={Warehouse}
+          label="Anomalie magazzino"
+          value={String(inventoryAnomalies)}
+          tone={inventoryAnomalies > 0 ? "error" : "neutral"}
+        />
       </div>
 
       <Surface>
-        <h2 className="mb-4 text-sm font-semibold">
-          Ultimi versamenti della fase
-        </h2>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {(data?.recentReceipts ?? []).map((receipt) => (
-            <div
-              key={receipt.id}
-              className="rounded-md border border-border bg-background p-3"
-            >
-              <div className="text-sm font-semibold">{receipt.line?.name}</div>
-              <div className="mt-1 font-mono text-xs text-muted-foreground">
-                {receipt.label}
-              </div>
-              <div className="mt-1.5 text-lg font-bold text-primary">
-                {receipt.quantity.toLocaleString("it-IT")} pz
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {new Date(receipt.created_at).toLocaleString("it-IT")}
-              </div>
-            </div>
-          ))}
-          {!data?.recentReceipts?.length && (
-            <div className="text-sm text-muted-foreground">
-              Nessun versamento registrato in questa fase.
-            </div>
-          )}
+        <h2 className="mb-4 text-base font-semibold">Collegamenti rapidi</h2>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <QuickLink
+            to="/versamento"
+            icon={PackagePlus}
+            title="Versamento"
+            description="Registra produzione e quantità"
+          />
+          <QuickLink
+            to="/spedizioni"
+            icon={Truck}
+            title="Spedizioni e stampe"
+            description="Bolle, carri, etichette e coda stampa"
+          />
+          <QuickLink
+            to="/magazzino"
+            icon={Warehouse}
+            title="Magazzino"
+            description="Pacchi, stato e posizione"
+          />
+          <QuickLink
+            to="/ricettario"
+            icon={BookOpen}
+            title="Ricettario"
+            description="Ricette e parametri linea"
+          />
+          <QuickLink
+            to="/diagnostica/errori"
+            icon={AlertTriangle}
+            title="Errori"
+            description="Anomalie e codici intervento"
+            urgent={openIssues > 0}
+          />
         </div>
       </Surface>
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Surface>
+          <h2 className="mb-4 text-base font-semibold">Linee PLC</h2>
+          <div className="grid gap-3">
+            {(diagnostics?.production.lines ?? []).map((line) => {
+              const ok = line.handshake.datoPronte && line.handshake.datoLetto;
+              return (
+                <div
+                  key={line.id}
+                  className="grid gap-3 rounded-md border border-border bg-background p-3 md:grid-cols-[1fr_auto]"
+                >
+                  <div>
+                    <div className="font-semibold">{line.name}</div>
+                    <div className="text-sm text-muted-foreground">
+                      Ultima etichetta:{" "}
+                      <span className="font-mono">
+                        {line.latestEvent?.label ??
+                          line.handshake.lastLabel ??
+                          "-"}
+                      </span>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      Quantità:{" "}
+                      {line.latestEvent?.quantity.toLocaleString("it-IT") ??
+                        "-"}{" "}
+                      pz
+                    </div>
+                  </div>
+                  <StatusBadge tone={ok ? "ok" : "warning"}>
+                    {ok ? "Handshake OK" : "Da verificare"}
+                  </StatusBadge>
+                </div>
+              );
+            })}
+          </div>
+        </Surface>
+
+        <Surface>
+          <h2 className="mb-4 text-base font-semibold">Cose da controllare</h2>
+          <div className="space-y-3">
+            <CheckRow
+              label="Database"
+              value={sqlOk ? "Connesso" : "Non connesso"}
+              tone={sqlOk ? "ok" : "error"}
+              to="/diagnostica/errori"
+            />
+            <CheckRow
+              label="Stampe fallite"
+              value={formatCount(failedPrints, "errore", "errori")}
+              tone={failedPrints > 0 ? "error" : "ok"}
+              to="/spedizioni"
+            />
+            <CheckRow
+              label="Pacchi in anomalia"
+              value={formatCount(inventoryAnomalies, "anomalia", "anomalie")}
+              tone={inventoryAnomalies > 0 ? "error" : "ok"}
+              to="/magazzino"
+            />
+            <CheckRow
+              label="Duplicati PLC"
+              value={formatCount(
+                diagnostics?.counters.duplicatePlcEvents ?? 0,
+                "duplicato",
+                "duplicati",
+              )}
+              tone={
+                (diagnostics?.counters.duplicatePlcEvents ?? 0) > 0
+                  ? "warning"
+                  : "ok"
+              }
+              to="/diagnostica/errori"
+            />
+          </div>
+        </Surface>
+      </div>
     </PageShell>
   );
 }
 
-function LineCard({
-  line,
-  busy,
-  onConfirm,
+function QuickLink({
+  to,
+  icon: Icon,
+  title,
+  description,
+  urgent = false,
 }: {
-  line: WorkstationLine;
-  busy: boolean;
-  onConfirm: () => void;
+  to: string;
+  icon: typeof PackagePlus;
+  title: string;
+  description: string;
+  urgent?: boolean;
 }) {
-  const canConfirm = !!line.latestEvent && !line.receipt;
-
   return (
-    <Surface className="p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold">{line.name}</h2>
-          <div className="mt-0.5 text-sm text-muted-foreground">
-            Uscita {line.output}
-          </div>
-        </div>
-        <HandshakeBadge
-          ready={line.handshake.datoPronte}
-          read={line.handshake.datoLetto}
-        />
-      </div>
-
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <Panel icon={PackageCheck} label="Quantità PLC">
-          {line.latestEvent
-            ? `${line.latestEvent.quantity.toLocaleString("it-IT")} pz`
-            : "-"}
-        </Panel>
-        <Panel icon={Clock} label="Etichetta lotto">
-          {line.latestEvent?.label ?? "-"}
-        </Panel>
-      </div>
-
-      <div className="mt-4 rounded-md border border-border bg-background p-4">
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-          <Printer className="h-4 w-4 text-primary" />
-          Stampante dedicata
-        </div>
-        <div className="text-base font-bold">{line.printer}</div>
-        <div className="mt-1 text-sm text-muted-foreground">
-          Stato job:{" "}
-          {line.printJob
-            ? printStatusLabel(line.printJob.status)
-            : "nessun job"}
-        </div>
-        {line.printJob?.error_message && (
-          <div className="mt-2 rounded-md bg-destructive/10 p-3 text-base font-semibold text-destructive">
-            {line.printJob.error_code ?? "ERRORE"} ·{" "}
-            {line.printJob.error_message}
-          </div>
-        )}
-      </div>
-
-      <PrimaryButton
-        type="button"
-        disabled={!canConfirm || busy}
-        onClick={onConfirm}
-        className={
-          canConfirm
-            ? "mt-5 h-14 w-full text-base font-bold"
-            : "mt-5 h-14 w-full bg-muted text-base font-bold text-muted-foreground hover:opacity-100"
-        }
-      >
-        {line.receipt ? "VERSATO" : "VERSA ALLA FASE"}
-      </PrimaryButton>
-    </Surface>
+    <Link
+      to={to}
+      className={`rounded-md border p-4 transition-colors hover:bg-accent ${
+        urgent
+          ? "border-destructive/40 bg-destructive/5"
+          : "border-border bg-background"
+      }`}
+    >
+      <Icon
+        className={`mb-3 h-5 w-5 ${urgent ? "text-destructive" : "text-primary"}`}
+      />
+      <div className="font-semibold">{title}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{description}</div>
+    </Link>
   );
 }
 
-function Panel({
-  icon: Icon,
+function CheckRow({
   label,
+  value,
+  tone,
+  to,
+}: {
+  label: string;
+  value: string;
+  tone: "ok" | "warning" | "error";
+  to: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="flex items-center justify-between gap-3 rounded-md border border-border bg-background p-3 hover:bg-accent"
+    >
+      <div>
+        <div className="text-sm font-semibold">{label}</div>
+        <div className="text-sm text-muted-foreground">{value}</div>
+      </div>
+      <StatusBadge tone={tone}>
+        {tone === "ok" ? "OK" : tone === "warning" ? "Avviso" : "Errore"}
+      </StatusBadge>
+    </Link>
+  );
+}
+
+function StatusBadge({
+  tone,
   children,
 }: {
-  icon: typeof PackageCheck;
-  label: string;
+  tone: "ok" | "warning" | "error";
   children: React.ReactNode;
 }) {
-  return (
-    <div className="rounded-md border border-border bg-background p-4">
-      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        <Icon className="h-4 w-4 text-primary" />
-        {label}
-      </div>
-      <div className="break-words text-xl font-bold">{children}</div>
-    </div>
-  );
-}
-
-function HandshakeBadge({ ready, read }: { ready: boolean; read: boolean }) {
-  const label = ready && read ? "Dato letto" : ready ? "Dato pronto" : "Reset";
-  const cls =
-    ready && read
+  const className =
+    tone === "ok"
       ? "bg-emerald-100 text-emerald-800"
-      : ready
+      : tone === "warning"
         ? "bg-amber-100 text-amber-800"
-        : "bg-muted text-muted-foreground";
+        : "bg-destructive/10 text-destructive";
+
   return (
-    <div className={`rounded-md px-2.5 py-1 text-xs font-semibold ${cls}`}>
-      {label}
-    </div>
+    <span
+      className={`inline-flex h-fit rounded-md px-2 py-1 text-xs font-semibold ${className}`}
+    >
+      {children}
+    </span>
   );
 }
 
-function printStatusLabel(
-  status: NonNullable<WorkstationLine["printJob"]>["status"],
-) {
-  if (status === "pending") return "in coda";
-  if (status === "printing") return "in stampa";
-  if (status === "printed") return "stampato";
-  return "errore";
+function formatCount(value: number, singular: string, plural: string) {
+  return `${value} ${value === 1 ? singular : plural}`;
 }

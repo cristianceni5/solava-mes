@@ -6,11 +6,13 @@ import {
 } from "@tanstack/react-router";
 import { useEffect } from "react";
 import {
+  Activity,
+  BookOpen,
   History,
   LayoutDashboard,
   LogOut,
+  PackageSearch,
   PackagePlus,
-  Printer,
   Truck,
   Users,
 } from "lucide-react";
@@ -20,10 +22,12 @@ import { cn } from "@/lib/utils";
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/versamento", label: "Versamento", icon: PackagePlus },
-  { to: "/spedizioni", label: "Spedizioni", icon: Truck },
-  { to: "/stampe", label: "Coda stampa", icon: Printer },
+  { to: "/ricettario", label: "Ricettario", icon: BookOpen },
+  { to: "/magazzino", label: "Magazzino", icon: PackageSearch },
+  { to: "/spedizioni", label: "Spedizioni e stampe", icon: Truck },
   { to: "/storico", label: "Storico", icon: History },
   { to: "/anagrafica", label: "Anagrafica", icon: Users },
+  { to: "/diagnostica", label: "Diagnostica", icon: Activity },
 ];
 
 export function MesLayout() {
@@ -59,7 +63,9 @@ export function MesLayout() {
 
         <nav className="flex-1 space-y-1 p-3">
           {nav.map((item) => {
-            const active = path === item.to;
+            const active =
+              path === item.to ||
+              (item.to !== "/" && path.startsWith(`${item.to}/`));
             const Icon = item.icon;
             return (
               <Link
@@ -120,7 +126,9 @@ export function MesLayout() {
 
         <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card px-2 py-2 md:hidden">
           {nav.map((item) => {
-            const active = path === item.to;
+            const active =
+              path === item.to ||
+              (item.to !== "/" && path.startsWith(`${item.to}/`));
             return (
               <Link
                 key={item.to}
