@@ -34,6 +34,13 @@ function LoginPage() {
     if (ready && employee) navigate({ to: "/" });
   }, [ready, employee, navigate]);
 
+  useEffect(() => {
+    const firstPhase = options?.phases[0]?.id;
+    if (firstPhase && !options?.phases.some((phase) => phase.id === phaseId)) {
+      setPhaseId(firstPhase);
+    }
+  }, [options?.phases, phaseId]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!matricola || !pin || !phaseId) return;

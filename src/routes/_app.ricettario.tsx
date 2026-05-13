@@ -74,7 +74,7 @@ function RicettarioPage() {
     <PageShell className="max-w-none">
       <PageHeader
         title="Ricettario"
-        description="Archivio ricette di lavorazione e imballo, pronto per aggancio al database SQL"
+        description="Archivio ricette di lavorazione e imballo collegato a Supabase"
         action={<StatusPill icon={Radio}>Sync 30s</StatusPill>}
       />
 

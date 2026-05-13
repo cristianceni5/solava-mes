@@ -37,7 +37,7 @@ function DiagnosticaPage() {
     refetchInterval: 5_000,
   });
 
-  const sqlOk = data?.sql.ok ?? false;
+  const dbOk = data?.supabase.ok ?? data?.sql.ok ?? false;
   const anomalies = data?.inventory.anomalies.length ?? 0;
   const failedPrints = data?.printQueue.failed.length ?? 0;
   const duplicateEvents = data?.counters.duplicatePlcEvents ?? 0;
@@ -70,7 +70,7 @@ function DiagnosticaPage() {
             Errore caricamento diagnostica
           </div>
           <pre className="mt-3 overflow-auto rounded-md bg-background p-3 text-xs">
-            {String(error)}
+            {formatUnknown(error)}
           </pre>
         </Surface>
       )}
@@ -78,11 +78,15 @@ function DiagnosticaPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={Database}
-          label="SQL Server"
+          label="Supabase"
           value={
-            sqlOk ? "OK" : data?.sql.configured ? "Errore" : "Non configurato"
+            dbOk
+              ? "OK"
+              : data?.supabase.configured
+                ? "Errore"
+                : "Non configurato"
           }
-          tone={sqlOk ? "ok" : "error"}
+          tone={dbOk ? "ok" : "error"}
         />
         <StatCard
           icon={Radio}
@@ -125,7 +129,7 @@ function DiagnosticaPage() {
           <div className="mt-5 grid gap-3 md:grid-cols-2">
             <StatusPanel
               title="Database"
-              status={sqlOk ? "ok" : "error"}
+              status={dbOk ? "ok" : "error"}
               detail={sqlDetail(data)}
             />
             <StatusPanel
@@ -480,6 +484,16 @@ function JsonBlock({
   );
 }
 
+function formatUnknown(value: unknown) {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 function EmptyState({ loading, label }: { loading?: boolean; label: string }) {
   return (
     <div className="text-sm text-muted-foreground">
@@ -498,10 +512,11 @@ function sqlDetail(
   data: Awaited<ReturnType<typeof getDiagnostics>> | undefined,
 ) {
   if (!data) return "-";
-  if (data.sql.ok) {
-    return `Database ${data.sql.database ?? "-"} - server time ${formatDate(data.sql.serverTime)}`;
+  const db = data.supabase ?? data.sql;
+  if (db.ok) {
+    return `Supabase ${db.database ?? "-"} - schema OK - server time ${formatDate(db.serverTime)}`;
   }
-  return data.sql.message ?? "Connessione SQL non disponibile";
+  return db.message ?? "Connessione Supabase non disponibile";
 }
 
 function formatDate(value: string | Date | null | undefined) {

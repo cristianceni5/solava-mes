@@ -1,129 +1,740 @@
-CREATE TABLE dbo.operators (
-  id uniqueidentifier NOT NULL CONSTRAINT df_operators_id DEFAULT newid(),
-  matricola nvarchar(20) NOT NULL,
-  pin_hash varbinary(32) NOT NULL,
-  full_name nvarchar(120) NOT NULL,
-  role nvarchar(20) NOT NULL CONSTRAINT df_operators_role DEFAULT 'operatore',
-  active bit NOT NULL CONSTRAINT df_operators_active DEFAULT 1,
-  created_at datetime2(3) NOT NULL CONSTRAINT df_operators_created_at DEFAULT sysdatetime(),
-  CONSTRAINT pk_operators PRIMARY KEY (id),
-  CONSTRAINT uq_operators_matricola UNIQUE (matricola),
-  CONSTRAINT ck_operators_role CHECK (role in ('operatore', 'magazziniere', 'caporeparto', 'admin'))
+create extension if not exists pgcrypto;
+
+create table if not exists mes_schema_migrations (
+  id integer primary key,
+  name text not null,
+  applied_at timestamptz not null default now()
 );
 
-CREATE TABLE dbo.plc_events (
-  id uniqueidentifier NOT NULL CONSTRAINT df_plc_events_id DEFAULT newid(),
-  line_id nvarchar(20) NOT NULL,
-  quantity int NOT NULL,
-  label nvarchar(80) NOT NULL,
-  dato_pronte bit NOT NULL,
-  dato_letto bit NOT NULL,
-  duplicate bit NOT NULL CONSTRAINT df_plc_events_duplicate DEFAULT 0,
-  received_at datetime2(3) NOT NULL CONSTRAINT df_plc_events_received_at DEFAULT sysdatetime(),
-  CONSTRAINT pk_plc_events PRIMARY KEY (id),
-  CONSTRAINT ck_plc_events_line CHECK (line_id in ('mattoni', 'tegole')),
-  CONSTRAINT ck_plc_events_quantity CHECK (quantity > 0)
+create table if not exists operators (
+  id uuid primary key default gen_random_uuid(),
+  matricola text not null unique,
+  pin_hash bytea not null,
+  full_name text not null,
+  role text not null default 'operatore'
+    check (role in ('operatore', 'magazziniere', 'caporeparto', 'admin')),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
 );
 
-CREATE INDEX ix_plc_events_line_received ON dbo.plc_events(line_id, received_at DESC);
-CREATE INDEX ix_plc_events_dedupe ON dbo.plc_events(line_id, label, received_at DESC);
-
-CREATE TABLE dbo.phase_receipts (
-  id uniqueidentifier NOT NULL CONSTRAINT df_phase_receipts_id DEFAULT newid(),
-  plc_event_id uniqueidentifier NOT NULL,
-  line_id nvarchar(20) NOT NULL,
-  phase_id nvarchar(30) NOT NULL,
-  operator_id uniqueidentifier NOT NULL,
-  quantity int NOT NULL,
-  label nvarchar(80) NOT NULL,
-  created_at datetime2(3) NOT NULL CONSTRAINT df_phase_receipts_created_at DEFAULT sysdatetime(),
-  CONSTRAINT pk_phase_receipts PRIMARY KEY (id),
-  CONSTRAINT fk_phase_receipts_event FOREIGN KEY (plc_event_id) REFERENCES dbo.plc_events(id),
-  CONSTRAINT fk_phase_receipts_operator FOREIGN KEY (operator_id) REFERENCES dbo.operators(id),
-  CONSTRAINT uq_phase_receipts_once UNIQUE (plc_event_id, phase_id),
-  CONSTRAINT ck_phase_receipts_line CHECK (line_id in ('mattoni', 'tegole')),
-  CONSTRAINT ck_phase_receipts_phase CHECK (
-    phase_id in ('verde', 'qc-verde', 'secco', 'qc-secco', 'cotto', 'qc-cotto', 'imballaggio', 'fine')
-  )
+create table if not exists products (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  type text not null,
+  unit text not null default 'pz'
 );
 
-CREATE INDEX ix_phase_receipts_phase_created ON dbo.phase_receipts(phase_id, created_at DESC);
-
-CREATE TABLE dbo.inventory_packages (
-  id uniqueidentifier NOT NULL CONSTRAINT df_inventory_packages_id DEFAULT newid(),
-  plc_event_id uniqueidentifier NOT NULL,
-  code nvarchar(100) NOT NULL,
-  line_id nvarchar(20) NOT NULL,
-  quantity int NOT NULL,
-  status nvarchar(20) NOT NULL CONSTRAINT df_inventory_packages_status DEFAULT 'in_stock',
-  location nvarchar(80) NULL,
-  created_at datetime2(3) NOT NULL CONSTRAINT df_inventory_packages_created_at DEFAULT sysdatetime(),
-  updated_at datetime2(3) NOT NULL CONSTRAINT df_inventory_packages_updated_at DEFAULT sysdatetime(),
-  CONSTRAINT pk_inventory_packages PRIMARY KEY (id),
-  CONSTRAINT fk_inventory_packages_event FOREIGN KEY (plc_event_id) REFERENCES dbo.plc_events(id),
-  CONSTRAINT uq_inventory_packages_code UNIQUE (code),
-  CONSTRAINT ck_inventory_packages_line CHECK (line_id in ('mattoni', 'tegole')),
-  CONSTRAINT ck_inventory_packages_quantity CHECK (quantity > 0),
-  CONSTRAINT ck_inventory_packages_status CHECK (status in ('in_stock', 'in_lavorazione', 'spedito', 'anomalia'))
+create table if not exists machines (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  line text not null,
+  plc text not null,
+  network text not null
 );
 
-CREATE INDEX ix_inventory_packages_status_created ON dbo.inventory_packages(status, created_at DESC);
-
-CREATE TABLE dbo.print_jobs (
-  id uniqueidentifier NOT NULL CONSTRAINT df_print_jobs_id DEFAULT newid(),
-  plc_event_id uniqueidentifier NOT NULL,
-  line_id nvarchar(20) NOT NULL,
-  label nvarchar(80) NOT NULL,
-  quantity int NOT NULL,
-  printer_name nvarchar(120) NOT NULL,
-  status nvarchar(20) NOT NULL CONSTRAINT df_print_jobs_status DEFAULT 'pending',
-  attempts int NOT NULL CONSTRAINT df_print_jobs_attempts DEFAULT 0,
-  max_attempts int NOT NULL CONSTRAINT df_print_jobs_max_attempts DEFAULT 5,
-  error_code nvarchar(80) NULL,
-  error_message nvarchar(1000) NULL,
-  created_at datetime2(3) NOT NULL CONSTRAINT df_print_jobs_created_at DEFAULT sysdatetime(),
-  updated_at datetime2(3) NOT NULL CONSTRAINT df_print_jobs_updated_at DEFAULT sysdatetime(),
-  CONSTRAINT pk_print_jobs PRIMARY KEY (id),
-  CONSTRAINT fk_print_jobs_event FOREIGN KEY (plc_event_id) REFERENCES dbo.plc_events(id),
-  CONSTRAINT ck_print_jobs_line CHECK (line_id in ('mattoni', 'tegole')),
-  CONSTRAINT ck_print_jobs_status CHECK (status in ('pending', 'printing', 'printed', 'failed'))
+create table if not exists departments (
+  id text primary key,
+  name text not null,
+  sort_order integer not null default 0,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (id ~ '^[a-z0-9][a-z0-9-]{1,48}$')
 );
 
-CREATE INDEX ix_print_jobs_pickup ON dbo.print_jobs(status, created_at);
+insert into departments (id, name, sort_order, active)
+values
+  ('verde', 'Verde', 10, true),
+  ('qc-verde', 'QC Verde', 20, true),
+  ('secco', 'Secco', 30, true),
+  ('qc-secco', 'QC Secco', 40, true),
+  ('cotto', 'Cotto', 50, true),
+  ('qc-cotto', 'QC Cotto', 60, true),
+  ('imballaggio', 'Imballaggio', 70, true),
+  ('fine', 'Fine', 80, true)
+on conflict (id) do update
+set name = excluded.name,
+    sort_order = excluded.sort_order,
+    active = excluded.active,
+    updated_at = now();
 
-CREATE TABLE dbo.audit_log (
-  id bigint IDENTITY(1,1) NOT NULL,
-  operator_id uniqueidentifier NULL,
-  action nvarchar(60) NOT NULL,
-  entity nvarchar(60) NULL,
-  entity_id nvarchar(100) NULL,
-  payload nvarchar(max) NULL,
-  ip nvarchar(45) NULL,
-  created_at datetime2(3) NOT NULL CONSTRAINT df_audit_log_created_at DEFAULT sysdatetime(),
-  CONSTRAINT pk_audit_log PRIMARY KEY (id),
-  CONSTRAINT fk_audit_log_operator FOREIGN KEY (operator_id) REFERENCES dbo.operators(id)
+create table if not exists plc_connections (
+  id uuid primary key default gen_random_uuid(),
+  code text unique,
+  line_id text check (line_id in ('mattoni', 'tegole')),
+  name text not null,
+  model text not null default 'S7-1500',
+  protocol text not null default 'opcua' check (protocol in ('opcua', 'http')),
+  endpoint_url text,
+  security_mode text not null default 'None',
+  security_policy text not null default 'None',
+  username text,
+  password_secret_name text,
+  topology_notes text,
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
-CREATE INDEX ix_audit_log_created ON dbo.audit_log(created_at DESC);
-CREATE INDEX ix_audit_log_entity ON dbo.audit_log(entity, entity_id, created_at DESC);
+alter table plc_connections add column if not exists code text;
+alter table plc_connections add column if not exists model text not null default 'S7-1500';
+alter table plc_connections add column if not exists topology_notes text;
+alter table plc_connections alter column line_id drop not null;
+do $$
+begin
+  if to_regclass('public.uq_plc_connections_code') is not null
+     and not exists (
+       select 1
+       from pg_constraint
+       where conname = 'uq_plc_connections_code'
+         and conrelid = 'public.plc_connections'::regclass
+     ) then
+    drop index uq_plc_connections_code;
+  end if;
+end;
+$$;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'uq_plc_connections_code'
+      and conrelid = 'public.plc_connections'::regclass
+  ) then
+    alter table plc_connections
+      add constraint uq_plc_connections_code unique (code);
+  end if;
+end;
+$$;
 
-INSERT INTO dbo.operators (matricola, pin_hash, full_name) VALUES
-  ('1001', hashbytes('SHA2_256', '1001:1234'), 'Operatore Verde'),
-  ('1002', hashbytes('SHA2_256', '1002:2345'), 'Operatore Secco'),
-  ('1003', hashbytes('SHA2_256', '1003:3456'), 'Operatore Cotto'),
-  ('9999', hashbytes('SHA2_256', '9999:0000'), 'Responsabile Turno');
+create table if not exists plc_nodes (
+  id uuid primary key default gen_random_uuid(),
+  connection_id uuid not null references plc_connections(id) on delete cascade,
+  key text not null,
+  node_id text not null,
+  data_type text,
+  direction text not null default 'read' check (direction in ('read', 'write', 'read_write')),
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (connection_id, key)
+);
 
-GO
+create table if not exists plc_node_reads (
+  id bigint generated by default as identity primary key,
+  connection_id uuid references plc_connections(id) on delete set null,
+  node_key text not null,
+  node_id text not null,
+  value jsonb,
+  quality text,
+  source_timestamp timestamptz,
+  server_timestamp timestamptz,
+  error_code text,
+  error_message text,
+  created_at timestamptz not null default now()
+);
 
-CREATE OR ALTER FUNCTION dbo.verify_operator_pin(
-  @matricola nvarchar(20),
-  @pin nvarchar(10)
+create index if not exists ix_plc_node_reads_connection_created
+  on plc_node_reads(connection_id, created_at desc);
+
+create table if not exists recipes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  description text not null,
+  type text not null check (type in ('imballo', 'lavorazione')),
+  line text not null check (line in ('mattoni', 'tegole')),
+  version integer not null default 1,
+  active boolean not null default true,
+  payload jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists production_entries (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid not null references operators(id),
+  department_id text,
+  product_id uuid not null references products(id),
+  machine_id uuid not null references machines(id),
+  quantity integer not null check (quantity > 0),
+  scrap integer not null default 0 check (scrap >= 0),
+  shift text not null check (shift in ('mattina', 'pomeriggio', 'notte')),
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+alter table production_entries add column if not exists department_id text;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'fk_production_entries_department'
+      and conrelid = 'public.production_entries'::regclass
+  ) then
+    alter table production_entries
+      add constraint fk_production_entries_department
+      foreign key (department_id) references departments(id);
+  end if;
+end;
+$$;
+
+create table if not exists shipments (
+  id uuid primary key default gen_random_uuid(),
+  bolla_number text not null,
+  carro_number text not null,
+  product_id uuid not null references products(id),
+  quantity integer not null check (quantity > 0),
+  destination text,
+  notes text,
+  employee_id uuid not null references operators(id),
+  label_generated_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  unique (bolla_number, carro_number)
+);
+
+create table if not exists plc_events (
+  id uuid primary key default gen_random_uuid(),
+  line_id text not null check (line_id in ('mattoni', 'tegole')),
+  quantity integer not null check (quantity > 0),
+  label text not null,
+  dato_pronte boolean not null,
+  dato_letto boolean not null,
+  duplicate boolean not null default false,
+  received_at timestamptz not null default now()
+);
+
+create index if not exists ix_plc_events_line_received
+  on plc_events(line_id, received_at desc);
+create index if not exists ix_plc_events_dedupe
+  on plc_events(line_id, label, received_at desc);
+
+create table if not exists phase_receipts (
+  id uuid primary key default gen_random_uuid(),
+  plc_event_id uuid not null references plc_events(id),
+  line_id text not null check (line_id in ('mattoni', 'tegole')),
+  phase_id text not null,
+  operator_id uuid not null references operators(id),
+  quantity integer not null,
+  label text not null,
+  created_at timestamptz not null default now(),
+  unique (plc_event_id, phase_id)
+);
+
+create index if not exists ix_phase_receipts_phase_created
+  on phase_receipts(phase_id, created_at desc);
+
+do $$
+declare
+  constraint_name text;
+begin
+  for constraint_name in
+    select con.conname
+    from pg_constraint con
+    join pg_attribute att
+      on att.attrelid = con.conrelid
+     and att.attnum = any(con.conkey)
+    where con.conrelid = 'public.phase_receipts'::regclass
+      and con.contype = 'c'
+      and att.attname = 'phase_id'
+  loop
+    execute format('alter table phase_receipts drop constraint %I', constraint_name);
+  end loop;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'fk_phase_receipts_department'
+      and conrelid = 'public.phase_receipts'::regclass
+  ) then
+    alter table phase_receipts
+      add constraint fk_phase_receipts_department
+      foreign key (phase_id) references departments(id);
+  end if;
+end;
+$$;
+
+create table if not exists inventory_packages (
+  id uuid primary key default gen_random_uuid(),
+  plc_event_id uuid not null references plc_events(id),
+  code text not null unique,
+  line_id text not null check (line_id in ('mattoni', 'tegole')),
+  quantity integer not null check (quantity > 0),
+  status text not null default 'in_stock'
+    check (status in ('in_stock', 'in_lavorazione', 'spedito', 'anomalia')),
+  location text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists ix_inventory_packages_status_created
+  on inventory_packages(status, created_at desc);
+
+create table if not exists department_movements (
+  id uuid primary key default gen_random_uuid(),
+  department_id text not null references departments(id),
+  movement_type text not null check (movement_type in ('versamento', 'stampa', 'essiccazione', 'cottura', 'imballaggio', 'spedizione', 'rettifica')),
+  plc_event_id uuid references plc_events(id),
+  phase_receipt_id uuid references phase_receipts(id) on delete set null,
+  production_entry_id uuid references production_entries(id) on delete set null,
+  inventory_package_id uuid references inventory_packages(id) on delete set null,
+  line_id text check (line_id in ('mattoni', 'tegole')),
+  product_id uuid references products(id),
+  operator_id uuid references operators(id),
+  quantity integer not null check (quantity > 0),
+  label text,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ix_department_movements_department_created
+  on department_movements(department_id, created_at desc);
+create index if not exists ix_department_movements_label_created
+  on department_movements(label, created_at desc);
+
+create table if not exists print_jobs (
+  id uuid primary key default gen_random_uuid(),
+  plc_event_id uuid not null references plc_events(id),
+  line_id text not null check (line_id in ('mattoni', 'tegole')),
+  label text not null,
+  quantity integer not null,
+  printer_name text not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'printing', 'printed', 'failed')),
+  attempts integer not null default 0,
+  max_attempts integer not null default 5,
+  error_code text,
+  error_message text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists ix_print_jobs_pickup
+  on print_jobs(status, created_at);
+
+create table if not exists audit_log (
+  id bigint generated by default as identity primary key,
+  operator_id uuid references operators(id),
+  action text not null,
+  entity text,
+  entity_id text,
+  payload jsonb,
+  ip text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ix_audit_log_created
+  on audit_log(created_at desc);
+create index if not exists ix_audit_log_entity
+  on audit_log(entity, entity_id, created_at desc);
+
+create table if not exists line_handshakes (
+  line_id text primary key check (line_id in ('mattoni', 'tegole')),
+  dato_pronte boolean not null default false,
+  dato_letto boolean not null default false,
+  last_label text,
+  updated_at timestamptz
+);
+
+create or replace function set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_recipes_updated_at on recipes;
+create trigger trg_recipes_updated_at
+before update on recipes
+for each row execute function set_updated_at();
+
+drop trigger if exists trg_inventory_packages_updated_at on inventory_packages;
+create trigger trg_inventory_packages_updated_at
+before update on inventory_packages
+for each row execute function set_updated_at();
+
+drop trigger if exists trg_print_jobs_updated_at on print_jobs;
+create trigger trg_print_jobs_updated_at
+before update on print_jobs
+for each row execute function set_updated_at();
+
+drop trigger if exists trg_plc_connections_updated_at on plc_connections;
+create trigger trg_plc_connections_updated_at
+before update on plc_connections
+for each row execute function set_updated_at();
+
+drop trigger if exists trg_plc_nodes_updated_at on plc_nodes;
+create trigger trg_plc_nodes_updated_at
+before update on plc_nodes
+for each row execute function set_updated_at();
+
+drop trigger if exists trg_departments_updated_at on departments;
+create trigger trg_departments_updated_at
+before update on departments
+for each row execute function set_updated_at();
+
+create or replace function verify_operator_pin(
+  input_matricola text,
+  input_pin text
 )
-RETURNS TABLE
-AS
-RETURN
-  SELECT id, matricola, full_name
-  FROM dbo.operators
-  WHERE matricola = @matricola
-    AND active = 1
-    AND pin_hash = hashbytes('SHA2_256', @matricola + ':' + @pin);
+returns table (
+  id uuid,
+  matricola text,
+  full_name text,
+  role text
+)
+language sql
+stable
+as $$
+  select operators.id, operators.matricola, operators.full_name, operators.role
+  from operators
+  where operators.matricola = input_matricola
+    and operators.active = true
+    and operators.pin_hash = digest(input_matricola || ':' || input_pin, 'sha256');
+$$;
+
+create or replace function create_operator(
+  input_matricola text,
+  input_pin text,
+  input_full_name text,
+  input_role text default 'operatore',
+  input_active boolean default true
+)
+returns table (
+  id uuid,
+  matricola text,
+  full_name text,
+  role text,
+  active boolean,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if input_pin is null or length(trim(input_pin)) < 4 then
+    raise exception 'PIN obbligatorio';
+  end if;
+
+  return query
+    insert into operators (matricola, pin_hash, full_name, role, active)
+    values (
+      trim(input_matricola),
+      digest(trim(input_matricola) || ':' || trim(input_pin), 'sha256'),
+      trim(input_full_name),
+      input_role,
+      input_active
+    )
+    returning
+      operators.id,
+      operators.matricola,
+      operators.full_name,
+      operators.role,
+      operators.active,
+      operators.created_at;
+end;
+$$;
+
+drop function if exists public.update_operator(uuid, text, text, text, boolean, text);
+
+create or replace function public.update_operator(
+  input_id uuid,
+  input_matricola text,
+  input_full_name text,
+  input_role text,
+  input_active boolean,
+  input_pin text
+)
+returns table (
+  id uuid,
+  matricola text,
+  full_name text,
+  role text,
+  active boolean,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return query
+    update operators
+    set matricola = trim(input_matricola),
+        full_name = trim(input_full_name),
+        role = input_role,
+        active = input_active,
+        pin_hash = case
+          when nullif(trim(coalesce(input_pin, '')), '') is null then operators.pin_hash
+          else digest(trim(input_matricola) || ':' || trim(input_pin), 'sha256')
+        end
+    where operators.id = input_id
+    returning
+      operators.id,
+      operators.matricola,
+      operators.full_name,
+      operators.role,
+      operators.active,
+      operators.created_at;
+end;
+$$;
+
+revoke all on function public.update_operator(uuid, text, text, text, boolean, text)
+  from public;
+
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on function public.update_operator(uuid, text, text, text, boolean, text)
+      from anon;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on function public.update_operator(uuid, text, text, text, boolean, text)
+      from authenticated;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function public.update_operator(uuid, text, text, text, boolean, text)
+      to service_role;
+  end if;
+end;
+$$;
+
+create or replace function mes_schema_health()
+returns table (
+  ok boolean,
+  missing text[],
+  checked_at timestamptz
+)
+language plpgsql
+stable
+as $$
+declare
+  required_tables text[] := array[
+    'operators',
+    'departments',
+    'products',
+    'machines',
+    'recipes',
+    'production_entries',
+    'shipments',
+    'plc_connections',
+    'plc_nodes',
+    'plc_node_reads',
+    'plc_events',
+    'phase_receipts',
+    'department_movements',
+    'inventory_packages',
+    'print_jobs',
+    'audit_log',
+    'line_handshakes',
+    'mes_schema_migrations'
+  ];
+  required_functions text[] := array[
+    'verify_operator_pin',
+    'create_operator',
+    'update_operator',
+    'mes_schema_health',
+    'set_updated_at'
+  ];
+  required_columns text[] := array[
+    'operators.id',
+    'operators.matricola',
+    'operators.pin_hash',
+    'operators.full_name',
+    'operators.role',
+    'operators.active',
+    'departments.id',
+    'departments.name',
+    'departments.active',
+    'products.code',
+    'machines.code',
+    'recipes.payload',
+    'production_entries.employee_id',
+    'production_entries.department_id',
+    'shipments.bolla_number',
+    'plc_connections.code',
+    'plc_connections.model',
+    'plc_connections.endpoint_url',
+    'plc_nodes.node_id',
+    'plc_node_reads.value',
+    'plc_events.dato_pronte',
+    'phase_receipts.operator_id',
+    'department_movements.department_id',
+    'department_movements.movement_type',
+    'inventory_packages.status',
+    'print_jobs.printer_name',
+    'audit_log.payload',
+    'line_handshakes.dato_letto'
+  ];
+  item text;
+  parts text[];
+  missing_items text[] := array[]::text[];
+begin
+  foreach item in array required_tables loop
+    if not exists (
+      select 1
+      from information_schema.tables
+      where table_schema = 'public'
+        and table_name = item
+    ) then
+      missing_items := array_append(missing_items, 'table:' || item);
+    end if;
+  end loop;
+
+  foreach item in array required_functions loop
+    if not exists (
+      select 1
+      from information_schema.routines
+      where routine_schema = 'public'
+        and routine_name = item
+    ) then
+      missing_items := array_append(missing_items, 'function:' || item);
+    end if;
+  end loop;
+
+  foreach item in array required_columns loop
+    parts := string_to_array(item, '.');
+    if not exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = parts[1]
+        and column_name = parts[2]
+    ) then
+      missing_items := array_append(missing_items, 'column:' || item);
+    end if;
+  end loop;
+
+  if not exists (
+    select 1
+    from plc_connections
+    where code = 's7-1500-main'
+      and model = 'S7-1500'
+  ) then
+    missing_items := array_append(missing_items, 'data:plc_connections.s7-1500-main');
+  end if;
+
+  if not exists (
+    select 1
+    from departments
+    where id = 'verde'
+      and active = true
+  ) then
+    missing_items := array_append(missing_items, 'data:departments.verde');
+  end if;
+
+  return query select cardinality(missing_items) = 0, missing_items, now();
+end;
+$$;
+
+insert into operators (id, matricola, pin_hash, full_name, role)
+values
+  ('11111111-1111-4111-8111-111111111111', '1001', digest('1001:1234', 'sha256'), 'Operatore Verde', 'operatore'),
+  ('22222222-2222-4222-8222-222222222222', '1002', digest('1002:2345', 'sha256'), 'Operatore Secco', 'operatore'),
+  ('33333333-3333-4333-8333-333333333333', '1003', digest('1003:3456', 'sha256'), 'Operatore Cotto', 'caporeparto'),
+  ('99999999-9999-4999-8999-999999999999', '9999', digest('9999:0000', 'sha256'), 'Responsabile Turno', 'admin')
+on conflict (matricola) do nothing;
+
+insert into products (id, code, name, type, unit)
+values
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'MT-COTTO', 'Mattone cotto toscano', 'mattone', 'pz'),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', 'TG-COPPO', 'Tegola in cotto', 'tegola', 'pz')
+on conflict (code) do nothing;
+
+insert into machines (id, code, name, line, plc, network)
+values
+  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1', 'LINGL', 'Uscita Lingl', 'LINEA MATTONI', 's7_1500_centrale', 'profinet_via_s7_1500'),
+  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2', 'CAPACCIOLI', 'Uscita Capaccioli', 'LINEA TEGOLE', 's7_1500_centrale', 'profinet_via_s7_1500')
+on conflict (code) do update
+set name = excluded.name,
+    line = excluded.line,
+    plc = excluded.plc,
+    network = excluded.network;
+
+update plc_connections
+set code = 's7-1500-main',
+    line_id = null,
+    name = 'PLC Centrale S7-1500',
+    model = 'S7-1500',
+    protocol = 'opcua',
+    topology_notes = 'PLC unico centrale: gli S7-1200 inviano i dati al S7-1500; i PLC legacy inviano ai S7-1200.',
+    updated_at = now()
+where code is null
+  and line_id = 'mattoni';
+
+delete from plc_connections
+where code is null
+  and line_id = 'tegole';
+
+insert into plc_connections (code, line_id, name, model, protocol, endpoint_url, enabled, topology_notes)
+values
+  (
+    's7-1500-main',
+    null,
+    'PLC Centrale S7-1500',
+    'S7-1500',
+    'opcua',
+    null,
+    false,
+    'PLC unico centrale: gli S7-1200 inviano i dati al S7-1500; i PLC legacy inviano ai S7-1200.'
+  )
+on conflict (code) do update
+set name = excluded.name,
+    model = excluded.model,
+    protocol = excluded.protocol,
+    topology_notes = excluded.topology_notes,
+    updated_at = now();
+
+delete from plc_nodes
+using plc_connections c
+where plc_nodes.connection_id = c.id
+  and c.code = 's7-1500-main'
+  and plc_nodes.key in ('dato_pronte', 'quantita', 'etichetta', 'dato_letto');
+
+insert into plc_nodes (connection_id, key, node_id, data_type, direction)
+select c.id, node.key, node.node_id, node.data_type, node.direction
+from plc_connections c
+cross join lateral (
+  values
+    ('mattoni.dato_pronte', 'ns=2;s=Solava.Mattoni.DatoPronte', 'Boolean', 'read'),
+    ('mattoni.quantita', 'ns=2;s=Solava.Mattoni.Quantita', 'Int32', 'read'),
+    ('mattoni.etichetta', 'ns=2;s=Solava.Mattoni.Etichetta', 'String', 'read'),
+    ('mattoni.dato_letto', 'ns=2;s=Solava.Mattoni.DatoLetto', 'Boolean', 'write'),
+    ('tegole.dato_pronte', 'ns=2;s=Solava.Tegole.DatoPronte', 'Boolean', 'read'),
+    ('tegole.quantita', 'ns=2;s=Solava.Tegole.Quantita', 'Int32', 'read'),
+    ('tegole.etichetta', 'ns=2;s=Solava.Tegole.Etichetta', 'String', 'read'),
+    ('tegole.dato_letto', 'ns=2;s=Solava.Tegole.DatoLetto', 'Boolean', 'write')
+) as node(key, node_id, data_type, direction)
+where c.code = 's7-1500-main'
+on conflict (connection_id, key) do update
+set node_id = excluded.node_id,
+    data_type = excluded.data_type,
+    direction = excluded.direction,
+    updated_at = now();
+
+insert into recipes (id, code, description, type, line, version, active, payload)
+values
+  ('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'RIC-MAT-COTTO-001', 'Mattone cotto toscano - ciclo standard', 'lavorazione', 'mattoni', 1, true, '{"product_code":"MT-COTTO","target_quantity":1280,"cycle_seconds":42,"material_checks":["argilla","umidita","taglio"]}'::jsonb),
+  ('cccccccc-cccc-4ccc-8ccc-ccccccccccc2', 'RIC-TEG-COPPO-001', 'Tegola in cotto - ciclo standard', 'lavorazione', 'tegole', 1, true, '{"product_code":"TG-COPPO","target_quantity":640,"cycle_seconds":55,"material_checks":["impasto","pressatura","essiccazione"]}'::jsonb),
+  ('cccccccc-cccc-4ccc-8ccc-ccccccccccc3', 'RIC-IMB-PALLET-001', 'Imballo pallet standard', 'imballo', 'mattoni', 2, true, '{"product_code":"MT-COTTO","target_quantity":960,"cycle_seconds":30,"material_checks":["pallet","film","reggetta"],"packaging":"pallet 120x100"}'::jsonb)
+on conflict (code) do nothing;
+
+insert into line_handshakes (line_id, dato_pronte, dato_letto, last_label, updated_at)
+values
+  ('mattoni', false, false, null, now()),
+  ('tegole', false, false, null, now())
+on conflict (line_id) do nothing;
+
+insert into mes_schema_migrations (id, name)
+values (1, 'single_s7_1500_supabase_mes_schema_with_opcua')
+on conflict (id) do update
+set name = excluded.name,
+    applied_at = now();
+
+notify pgrst, 'reload schema';

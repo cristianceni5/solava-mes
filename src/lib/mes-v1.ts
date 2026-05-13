@@ -25,7 +25,13 @@ export const productionPhases = [
 ] as const;
 
 export type ProductionLineId = (typeof productionLines)[number]["id"];
-export type ProductionPhaseId = (typeof productionPhases)[number]["id"];
+export type ProductionPhaseId = string;
+export type ProductionPhase = {
+  id: string;
+  name: string;
+  sort_order?: number;
+  active?: boolean;
+};
 
 export function getLine(lineId: string) {
   return productionLines.find((line) => line.id === lineId);

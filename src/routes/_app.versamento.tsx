@@ -51,6 +51,7 @@ function Versamento() {
       const res = await submit({
         data: {
           employee_id: employee!.id,
+          department_id: employee!.phase_id,
           product_id: productId,
           machine_id: machineId,
           quantity: parseInt(quantity, 10),

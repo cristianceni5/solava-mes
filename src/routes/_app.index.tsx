@@ -55,9 +55,9 @@ function DashboardPage() {
   const failedPrints = printQueue?.kpi.failed ?? 0;
   const pendingPrints = printQueue?.kpi.pending ?? 0;
   const inventoryAnomalies = inventory?.kpi.anomalies ?? 0;
-  const sqlOk = diagnostics?.sql.ok ?? false;
+  const dbOk = diagnostics?.supabase.ok ?? diagnostics?.sql.ok ?? false;
   const openIssues =
-    (sqlOk ? 0 : 1) +
+    (dbOk ? 0 : 1) +
     failedPrints +
     inventoryAnomalies +
     (diagnostics?.counters.duplicatePlcEvents ?? 0);
@@ -79,9 +79,9 @@ function DashboardPage() {
         />
         <StatCard
           icon={Database}
-          label="SQL Server"
-          value={sqlOk ? "OK" : "Errore"}
-          tone={sqlOk ? "ok" : "error"}
+          label="Supabase"
+          value={dbOk ? "OK" : "Errore"}
+          tone={dbOk ? "ok" : "error"}
         />
         <StatCard
           icon={Printer}
@@ -181,8 +181,8 @@ function DashboardPage() {
           <div className="space-y-3">
             <CheckRow
               label="Database"
-              value={sqlOk ? "Connesso" : "Non connesso"}
-              tone={sqlOk ? "ok" : "error"}
+              value={dbOk ? "Connesso" : "Non connesso"}
+              tone={dbOk ? "ok" : "error"}
               to="/diagnostica/errori"
             />
             <CheckRow

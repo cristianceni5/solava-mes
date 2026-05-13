@@ -4,21 +4,22 @@ import {
   productionLines,
   productionPhases,
   type ProductionLineId,
+  type ProductionPhase,
   type ProductionPhaseId,
 } from "./mes-v1";
-import { describeDatabaseError, query } from "./db.server";
+import {
+  describeDatabaseError,
+  describeSupabaseTarget,
+  getSupabaseConfig,
+  supabaseAdmin,
+  unwrap,
+} from "./supabase.server";
+import { operatorPinHash } from "./operator-pin";
 
 export type PlcPayload = {
   DatoPronte: boolean;
   quantita?: number;
   etichetta?: string;
-};
-
-type Employee = {
-  id: string;
-  matricola: string;
-  pin: string;
-  full_name: string;
 };
 
 type PlcEvent = {
@@ -32,12 +33,12 @@ type PlcEvent = {
   duplicate: boolean;
 };
 
-type PhaseReceipt = {
+type PhaseReceiptRow = {
   id: string;
   plc_event_id: string;
   line_id: ProductionLineId;
   phase_id: ProductionPhaseId;
-  employee_id: string;
+  operator_id: string;
   quantity: number;
   label: string;
   created_at: string;
@@ -71,166 +72,134 @@ type InventoryPackage = {
 };
 
 type AuditLogEntry = {
-  id: string;
+  id: string | number;
   operator_id: string | null;
   action: string;
   entity: string | null;
   entity_id: string | null;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
   created_at: string;
 };
 
-type LineHandshake = {
-  datoPronte: boolean;
-  datoLetto: boolean;
-  lastLabel: string | null;
-  updatedAt: string | null;
+type LineHandshakeRow = {
+  line_id: ProductionLineId;
+  dato_pronte: boolean;
+  dato_letto: boolean;
+  last_label: string | null;
+  updated_at: string | null;
 };
 
-type MesStore = {
-  employees: Employee[];
-  plcEvents: PlcEvent[];
-  receipts: PhaseReceipt[];
-  printJobs: PrintJob[];
-  inventoryPackages: InventoryPackage[];
-  auditLog: AuditLogEntry[];
-  handshakes: Record<ProductionLineId, LineHandshake>;
+type DepartmentRow = {
+  id: string;
+  name: string;
+  sort_order: number;
+  active: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
-
-declare global {
-  var solavaMesV1Store: MesStore | undefined;
-}
 
 function timestamp() {
   return new Date().toISOString();
 }
 
-function createInitialStore(): MesStore {
-  const mattoniEventId = crypto.randomUUID();
-  const tegoleEventId = crypto.randomUUID();
-  const createdAt = timestamp();
-
+function receiptForClient(row: PhaseReceiptRow) {
   return {
-    employees: [
-      {
-        id: "11111111-1111-4111-8111-111111111111",
-        matricola: "1001",
-        pin: "1234",
-        full_name: "Operatore Verde",
-      },
-      {
-        id: "22222222-2222-4222-8222-222222222222",
-        matricola: "1002",
-        pin: "2345",
-        full_name: "Operatore Secco",
-      },
-      {
-        id: "33333333-3333-4333-8333-333333333333",
-        matricola: "1003",
-        pin: "3456",
-        full_name: "Operatore Cotto",
-      },
-      {
-        id: "99999999-9999-4999-8999-999999999999",
-        matricola: "9999",
-        pin: "0000",
-        full_name: "Responsabile Turno",
-      },
-    ],
-    plcEvents: [
-      {
-        id: mattoniEventId,
-        line_id: "mattoni",
-        quantity: 1280,
-        label: "MAT-DEMO-001",
-        received_at: createdAt,
-        dato_pronte: true,
-        dato_letto: true,
-        duplicate: false,
-      },
-      {
-        id: tegoleEventId,
-        line_id: "tegole",
-        quantity: 640,
-        label: "TEG-DEMO-001",
-        received_at: createdAt,
-        dato_pronte: true,
-        dato_letto: true,
-        duplicate: false,
-      },
-    ],
-    receipts: [],
-    printJobs: [],
-    inventoryPackages: [
-      {
-        id: crypto.randomUUID(),
-        plc_event_id: mattoniEventId,
-        code: "MAT-DEMO-001",
-        line_id: "mattoni",
-        quantity: 1280,
-        status: "in_stock",
-        location: "Area imballaggio",
-        created_at: createdAt,
-        updated_at: createdAt,
-      },
-      {
-        id: crypto.randomUUID(),
-        plc_event_id: tegoleEventId,
-        code: "TEG-DEMO-001",
-        line_id: "tegole",
-        quantity: 640,
-        status: "in_lavorazione",
-        location: "Linea tegole",
-        created_at: createdAt,
-        updated_at: createdAt,
-      },
-    ],
-    auditLog: [],
-    handshakes: {
-      mattoni: {
-        datoPronte: true,
-        datoLetto: true,
-        lastLabel: "MAT-DEMO-001",
-        updatedAt: timestamp(),
-      },
-      tegole: {
-        datoPronte: true,
-        datoLetto: true,
-        lastLabel: "TEG-DEMO-001",
-        updatedAt: timestamp(),
-      },
-    },
+    ...row,
+    employee_id: row.operator_id,
   };
 }
 
-function store() {
-  globalThis.solavaMesV1Store ??= createInitialStore();
-  return globalThis.solavaMesV1Store;
+function handshakeForClient(row?: LineHandshakeRow | null) {
+  return {
+    datoPronte: row?.dato_pronte ?? false,
+    datoLetto: row?.dato_letto ?? false,
+    lastLabel: row?.last_label ?? null,
+    updatedAt: row?.updated_at ?? null,
+  };
 }
 
-function writeAudit(entry: Omit<AuditLogEntry, "id" | "created_at">) {
-  store().auditLog.unshift({
-    ...entry,
-    id: crypto.randomUUID(),
-    created_at: timestamp(),
-  });
+function fallbackDepartments(): ProductionPhase[] {
+  return productionPhases.map((phase, index) => ({
+    ...phase,
+    sort_order: (index + 1) * 10,
+    active: true,
+  }));
 }
 
-export function loginOperator(
+export async function getDepartments(includeInactive = false) {
+  try {
+    let query = supabaseAdmin()
+      .from("departments")
+      .select("id, name, sort_order, active, created_at, updated_at")
+      .order("sort_order")
+      .order("name");
+
+    if (!includeInactive) query = query.eq("active", true);
+
+    const departments = unwrap(await query) as DepartmentRow[];
+    return departments.length ? departments : fallbackDepartments();
+  } catch (error) {
+    const message = describeDatabaseError(error);
+    if (message.includes("DB-42P01")) return fallbackDepartments();
+    throw error;
+  }
+}
+
+async function getActiveDepartment(departmentId: string) {
+  const departments = await getDepartments(false);
+  return departments.find((department) => department.id === departmentId);
+}
+
+async function writeAudit(entry: {
+  operator_id: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  payload: Record<string, unknown>;
+}) {
+  unwrap(
+    await supabaseAdmin()
+      .from("audit_log")
+      .insert({
+        operator_id: entry.operator_id,
+        action: entry.action,
+        entity: entry.entity,
+        entity_id: entry.entity_id,
+        payload: entry.payload,
+      })
+      .select("id")
+      .single(),
+  );
+}
+
+export async function loginOperator(
   matricola: string,
   pin: string,
   phaseId: ProductionPhaseId,
 ) {
-  const phase = getPhase(phaseId);
+  const phase = await getActiveDepartment(phaseId);
   if (!phase) return { ok: false as const, error: "Fase non valida" };
 
-  const employee = store().employees.find(
-    (item) => item.matricola === matricola && item.pin === pin,
-  );
-  if (!employee)
-    return { ok: false as const, error: "Matricola o PIN non validi" };
+  const employee = unwrap(
+    await supabaseAdmin()
+      .from("operators")
+      .select("id, matricola, full_name, role")
+      .eq("matricola", matricola)
+      .eq("active", true)
+      .eq("pin_hash", await operatorPinHash(matricola, pin))
+      .maybeSingle(),
+  ) as {
+    id: string;
+    matricola: string;
+    full_name: string;
+    role: "operatore" | "magazziniere" | "caporeparto" | "admin";
+  } | null;
 
-  writeAudit({
+  if (!employee) {
+    return { ok: false as const, error: "Matricola o PIN non validi" };
+  }
+
+  await writeAudit({
     operator_id: employee.id,
     action: "LOGIN_OPERATORE",
     entity: "sessione",
@@ -244,65 +213,123 @@ export function loginOperator(
       id: employee.id,
       matricola: employee.matricola,
       full_name: employee.full_name,
-      role: "operatore" as const,
+      role: employee.role ?? ("operatore" as const),
       phase_id: phase.id,
       phase_name: phase.name,
     },
   };
 }
 
-export function getLoginOptions() {
-  return { phases: productionPhases, lines: productionLines };
+export async function getLoginOptions() {
+  return { phases: await getDepartments(false), lines: productionLines };
 }
 
-export function getPlcPrintQueue() {
-  const db = store();
-  const jobs = db.printJobs.map((job) => ({
+export async function getPlcPrintQueue() {
+  const jobs = unwrap(
+    await supabaseAdmin()
+      .from("print_jobs")
+      .select("*")
+      .order("created_at", { ascending: false }),
+  ) as PrintJob[];
+
+  const rows = jobs.map((job) => ({
     ...job,
     line: getLine(job.line_id),
   }));
+
   return {
-    jobs,
+    jobs: rows,
     kpi: {
-      pending: jobs.filter((job) => job.status === "pending").length,
-      printing: jobs.filter((job) => job.status === "printing").length,
-      printed: jobs.filter((job) => job.status === "printed").length,
-      failed: jobs.filter((job) => job.status === "failed").length,
+      pending: rows.filter((job) => job.status === "pending").length,
+      printing: rows.filter((job) => job.status === "printing").length,
+      printed: rows.filter((job) => job.status === "printed").length,
+      failed: rows.filter((job) => job.status === "failed").length,
     },
   };
 }
 
-export function getInventoryOverview() {
-  const db = store();
-  const packages = db.inventoryPackages.map((item) => ({
+export async function getInventoryOverview() {
+  const [packages, auditLog] = await Promise.all([
+    supabaseAdmin()
+      .from("inventory_packages")
+      .select("*")
+      .order("created_at", { ascending: false }),
+    supabaseAdmin()
+      .from("audit_log")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(30),
+  ]);
+
+  const packageRows = unwrap(packages) as InventoryPackage[];
+  const auditRows = unwrap(auditLog) as AuditLogEntry[];
+  const rows = packageRows.map((item) => ({
     ...item,
     line: getLine(item.line_id),
-    lastAudit: db.auditLog.find(
-      (entry) => entry.entity === "magazzino" && entry.entity_id === item.id,
-    ),
+    lastAudit:
+      auditRows.find(
+        (entry) => entry.entity === "magazzino" && entry.entity_id === item.id,
+      ) ?? null,
   }));
 
   return {
-    packages,
-    auditLog: db.auditLog.slice(0, 30),
+    packages: rows,
+    auditLog: auditRows,
     kpi: {
-      total: packages.length,
-      inStock: packages.filter((item) => item.status === "in_stock").length,
-      inProgress: packages.filter((item) => item.status === "in_lavorazione")
+      total: rows.length,
+      inStock: rows.filter((item) => item.status === "in_stock").length,
+      inProgress: rows.filter((item) => item.status === "in_lavorazione")
         .length,
-      shipped: packages.filter((item) => item.status === "spedito").length,
-      anomalies: packages.filter((item) => item.status === "anomalia").length,
+      shipped: rows.filter((item) => item.status === "spedito").length,
+      anomalies: rows.filter((item) => item.status === "anomalia").length,
     },
   };
 }
 
 export async function getSystemDiagnostics() {
-  const db = store();
   const startedAt = new Date(
     Date.now() - process.uptime() * 1000,
   ).toISOString();
-  const sqlConnectionString = process.env.SQLSERVER_CONNECTION_STRING;
-  const sqlStatus = await testSqlConnection(sqlConnectionString);
+  const config = getSupabaseConfig();
+  const dbStatus = await testSupabaseConnection();
+  const departments = dbStatus.ok
+    ? await getDepartments(true)
+    : fallbackDepartments();
+  const [operators, plcEvents, receipts, printJobs, packages, auditLog] =
+    dbStatus.ok
+      ? await Promise.all([
+          countRows("operators"),
+          countRows("plc_events"),
+          countRows("phase_receipts"),
+          countRows("print_jobs"),
+          countRows("inventory_packages"),
+          countRows("audit_log"),
+        ])
+      : [0, 0, 0, 0, 0, 0];
+
+  const production = dbStatus.ok
+    ? await getProductionDiagnostics()
+    : productionLines.map((line) => ({
+        ...line,
+        handshake: handshakeForClient(null),
+        latestEvent: null,
+      }));
+
+  const [
+    recentPlc,
+    recentReceipts,
+    recentAudit,
+    recentPrintJobs,
+    recentPackages,
+  ] = dbStatus.ok
+    ? await Promise.all([
+        selectRows<PlcEvent>("plc_events", 20),
+        selectRows<PhaseReceiptRow>("phase_receipts", 20),
+        selectRows<AuditLogEntry>("audit_log", 30),
+        selectRows<PrintJob>("print_jobs", 20),
+        selectRows<InventoryPackage>("inventory_packages", 50),
+      ])
+    : [[], [], [], [], []];
 
   return {
     runtime: {
@@ -317,8 +344,16 @@ export async function getSystemDiagnostics() {
       now: timestamp(),
     },
     configuration: {
-      sqlServerConfigured: Boolean(sqlConnectionString),
-      sqlServerTarget: describeSqlTarget(sqlConnectionString),
+      supabaseConfigured: Boolean(config.url && config.privateKey),
+      supabaseTarget: describeSupabaseTarget(),
+      publicKeyConfigured: Boolean(config.publicKey),
+      plcTopology: {
+        controller: "S7-1500",
+        architecture:
+          "PLC unico centrale: gli S7-1200 inviano i dati al S7-1500; i PLC legacy inviano ai S7-1200.",
+        protocol: "OPC UA",
+        connectionCode: "s7-1500-main",
+      },
       plcHttpPort: 8031,
       plcEndpoints: productionLines.map((line) => ({
         line_id: line.id,
@@ -332,75 +367,85 @@ export async function getSystemDiagnostics() {
         },
       })),
     },
-    sql: sqlStatus,
+    sql: dbStatus,
+    supabase: dbStatus,
     production: {
-      phases: productionPhases,
-      lines: productionLines.map((line) => ({
-        ...line,
-        handshake: db.handshakes[line.id],
-        latestEvent:
-          db.plcEvents.find(
-            (event) => event.line_id === line.id && !event.duplicate,
-          ) ?? null,
-      })),
+      phases: departments,
+      lines: production,
     },
     counters: {
-      operators: db.employees.length,
-      plcEvents: db.plcEvents.length,
-      duplicatePlcEvents: db.plcEvents.filter((event) => event.duplicate)
-        .length,
-      phaseReceipts: db.receipts.length,
-      printJobs: db.printJobs.length,
-      inventoryPackages: db.inventoryPackages.length,
-      auditEntries: db.auditLog.length,
+      operators,
+      plcEvents,
+      duplicatePlcEvents: recentPlc.filter((event) => event.duplicate).length,
+      phaseReceipts: receipts,
+      printJobs,
+      inventoryPackages: packages,
+      auditEntries: auditLog,
     },
     printQueue: {
-      pending: db.printJobs.filter((job) => job.status === "pending"),
-      failed: db.printJobs.filter((job) => job.status === "failed"),
-      recent: db.printJobs.slice(0, 20),
+      pending: recentPrintJobs.filter((job) => job.status === "pending"),
+      failed: recentPrintJobs.filter((job) => job.status === "failed"),
+      recent: recentPrintJobs,
     },
     inventory: {
-      packages: db.inventoryPackages.slice(0, 50).map((item) => ({
+      packages: recentPackages.map((item) => ({
         ...item,
         line: getLine(item.line_id),
       })),
-      anomalies: db.inventoryPackages.filter(
-        (item) => item.status === "anomalia",
-      ),
+      anomalies: recentPackages.filter((item) => item.status === "anomalia"),
     },
     recent: {
-      plcEvents: db.plcEvents.slice(0, 20),
-      receipts: db.receipts.slice(0, 20).map((receipt) => ({
-        ...receipt,
+      plcEvents: recentPlc,
+      receipts: recentReceipts.map((receipt) => ({
+        ...receiptForClient(receipt),
         line: getLine(receipt.line_id),
-        phase: getPhase(receipt.phase_id),
+        phase: departments.find(
+          (department) => department.id === receipt.phase_id,
+        ),
       })),
-      auditLog: db.auditLog.slice(0, 30),
+      auditLog: recentAudit,
     },
   };
 }
 
-async function testSqlConnection(connectionString: string | undefined) {
-  if (!connectionString) {
+async function testSupabaseConnection() {
+  const config = getSupabaseConfig();
+  if (!config.url || !config.privateKey) {
     return {
       ok: false,
       configured: false,
       message:
-        "Problema: connessione SQL Server non configurata. Codice errore: DB-CONFIG-MANCANTE.",
+        "Problema: Supabase non configurato. Codice errore: DB-CONFIG-MANCANTE.",
       checkedAt: timestamp(),
     };
   }
 
   try {
-    const result = await query<{ db_name: string; server_time: Date }>(
-      "SELECT DB_NAME() as db_name, SYSDATETIME() as server_time",
-    );
+    const result = await supabaseAdmin().rpc("mes_schema_health").single();
+    if (result.error) throw result.error;
+    const health = result.data as {
+      ok: boolean;
+      missing: string[] | null;
+      checked_at: string;
+    } | null;
+
+    if (!health?.ok) {
+      return {
+        ok: false,
+        configured: true,
+        message: `Problema: schema Supabase incompleto. Mancano: ${(health?.missing ?? []).join(", ") || "dettaglio non disponibile"}. Codice errore: DB-SCHEMA-INCOMPLETO.`,
+        checkedAt: timestamp(),
+      };
+    }
+
     return {
       ok: true,
       configured: true,
-      database: result.rows[0]?.db_name ?? null,
-      serverTime: result.rows[0]?.server_time ?? null,
-      checkedAt: timestamp(),
+      database: "supabase",
+      schemaOk: true,
+      missing: [],
+      serverTime: timestamp(),
+      checkedAt: health.checked_at ?? timestamp(),
     };
   } catch (error) {
     return {
@@ -412,34 +457,78 @@ async function testSqlConnection(connectionString: string | undefined) {
   }
 }
 
-function describeSqlTarget(connectionString: string | undefined) {
-  if (!connectionString) return null;
-  const server =
-    connectionString.match(/(?:server|data source)\s*=\s*([^;]+)/i)?.[1] ??
-    null;
-  const database =
-    connectionString.match(
-      /(?:database|initial catalog)\s*=\s*([^;]+)/i,
-    )?.[1] ?? null;
-  return { server, database };
+async function countRows(table: string) {
+  const result = await supabaseAdmin()
+    .from(table)
+    .select("id", { count: "exact", head: true });
+  if (result.error) throw result.error;
+  return result.count ?? 0;
 }
 
-export function updateInventoryPackage(input: {
+async function selectRows<T>(table: string, limit: number) {
+  const result = await supabaseAdmin()
+    .from(table)
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return unwrap(result) as T[];
+}
+
+async function getProductionDiagnostics() {
+  const [handshakes, events] = await Promise.all([
+    supabaseAdmin().from("line_handshakes").select("*"),
+    supabaseAdmin()
+      .from("plc_events")
+      .select("*")
+      .eq("duplicate", false)
+      .order("received_at", { ascending: false })
+      .limit(20),
+  ]);
+  const handshakeRows = unwrap(handshakes) as LineHandshakeRow[];
+  const eventRows = unwrap(events) as PlcEvent[];
+
+  return productionLines.map((line) => ({
+    ...line,
+    handshake: handshakeForClient(
+      handshakeRows.find((item) => item.line_id === line.id),
+    ),
+    latestEvent:
+      eventRows.find(
+        (event) => event.line_id === line.id && !event.duplicate,
+      ) ?? null,
+  }));
+}
+
+export async function updateInventoryPackage(input: {
   package_id: string;
   operator_id: string;
   status: InventoryPackage["status"];
   location?: string | null;
 }) {
-  const db = store();
-  const pkg = db.inventoryPackages.find((item) => item.id === input.package_id);
+  const pkg = unwrap(
+    await supabaseAdmin()
+      .from("inventory_packages")
+      .select("*")
+      .eq("id", input.package_id)
+      .maybeSingle(),
+  ) as InventoryPackage | null;
+
   if (!pkg) return { ok: false as const, error: "Pacco non trovato" };
 
-  const oldStatus = pkg.status;
-  pkg.status = input.status;
-  pkg.location = input.location?.trim() || pkg.location;
-  pkg.updated_at = timestamp();
+  const updated = unwrap(
+    await supabaseAdmin()
+      .from("inventory_packages")
+      .update({
+        status: input.status,
+        location: input.location?.trim() || pkg.location,
+        updated_at: timestamp(),
+      })
+      .eq("id", pkg.id)
+      .select("*")
+      .single(),
+  ) as InventoryPackage;
 
-  writeAudit({
+  await writeAudit({
     operator_id: input.operator_id,
     action: "AGGIORNA_PACCO",
     entity: "magazzino",
@@ -447,98 +536,149 @@ export function updateInventoryPackage(input: {
     payload: {
       code: pkg.code,
       line_id: pkg.line_id,
-      old_status: oldStatus,
-      new_status: pkg.status,
-      location: pkg.location,
+      old_status: pkg.status,
+      new_status: updated.status,
+      location: updated.location,
     },
   });
 
   return { ok: true as const };
 }
 
-export function getWorkstation(phaseId: ProductionPhaseId) {
-  const phase = getPhase(phaseId);
-  const db = store();
+export async function getWorkstation(phaseId: ProductionPhaseId) {
+  const phase = await getActiveDepartment(phaseId);
+  if (!phase) return { phase: null, lines: [], recentReceipts: [] };
+  const [events, receipts, printJobs, handshakes] = await Promise.all([
+    supabaseAdmin()
+      .from("plc_events")
+      .select("*")
+      .eq("duplicate", false)
+      .order("received_at", { ascending: false })
+      .limit(50),
+    supabaseAdmin()
+      .from("phase_receipts")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(100),
+    supabaseAdmin()
+      .from("print_jobs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabaseAdmin().from("line_handshakes").select("*"),
+  ]);
+
+  const eventRows = unwrap(events) as PlcEvent[];
+  const receiptRows = unwrap(receipts) as PhaseReceiptRow[];
+  const jobRows = unwrap(printJobs) as PrintJob[];
+  const handshakeRows = unwrap(handshakes) as LineHandshakeRow[];
 
   return {
     phase,
     lines: productionLines.map((line) => {
-      const latest = db.plcEvents.find(
-        (event) => event.line_id === line.id && !event.duplicate,
-      );
+      const latest = eventRows.find((event) => event.line_id === line.id);
       const receipt = latest
-        ? db.receipts.find(
+        ? receiptRows.find(
             (item) =>
               item.plc_event_id === latest.id && item.phase_id === phaseId,
           )
         : undefined;
       const printJob = latest
-        ? db.printJobs.find(
+        ? jobRows.find(
             (job) => job.plc_event_id === latest.id && job.line_id === line.id,
           )
         : undefined;
 
       return {
         ...line,
-        handshake: db.handshakes[line.id],
+        handshake: handshakeForClient(
+          handshakeRows.find((item) => item.line_id === line.id),
+        ),
         latestEvent: latest ?? null,
-        receipt: receipt ?? null,
+        receipt: receipt ? receiptForClient(receipt) : null,
         printJob: printJob ?? null,
       };
     }),
-    recentReceipts: db.receipts
+    recentReceipts: receiptRows
       .filter((receipt) => receipt.phase_id === phaseId)
       .slice(0, 8)
       .map((receipt) => ({
-        ...receipt,
+        ...receiptForClient(receipt),
         line: getLine(receipt.line_id),
       })),
   };
 }
 
-export function submitPhaseReceipt(input: {
+export async function submitPhaseReceipt(input: {
   employee_id: string;
   phase_id: ProductionPhaseId;
   line_id: ProductionLineId;
   plc_event_id: string;
 }) {
-  const db = store();
-  const phase = getPhase(input.phase_id);
+  const phase = await getActiveDepartment(input.phase_id);
   const line = getLine(input.line_id);
   if (!phase) return { ok: false as const, error: "Fase non valida" };
   if (!line) return { ok: false as const, error: "Linea non valida" };
 
-  const event = db.plcEvents.find(
-    (item) =>
-      item.id === input.plc_event_id &&
-      item.line_id === input.line_id &&
-      !item.duplicate,
-  );
+  const event = unwrap(
+    await supabaseAdmin()
+      .from("plc_events")
+      .select("*")
+      .eq("id", input.plc_event_id)
+      .eq("line_id", input.line_id)
+      .eq("duplicate", false)
+      .maybeSingle(),
+  ) as PlcEvent | null;
   if (!event) return { ok: false as const, error: "Dato PLC non trovato" };
 
-  const alreadyDone = db.receipts.some(
-    (item) =>
-      item.plc_event_id === input.plc_event_id &&
-      item.phase_id === input.phase_id,
-  );
-  if (alreadyDone)
+  const existing = unwrap(
+    await supabaseAdmin()
+      .from("phase_receipts")
+      .select("id")
+      .eq("plc_event_id", input.plc_event_id)
+      .eq("phase_id", input.phase_id)
+      .maybeSingle(),
+  ) as { id: string } | null;
+  if (existing) {
     return {
       ok: false as const,
-      error: "Quantità già versata per questa fase",
+      error: "Quantita gia versata per questa fase",
     };
+  }
 
-  db.receipts.unshift({
-    id: crypto.randomUUID(),
-    plc_event_id: event.id,
-    line_id: input.line_id,
-    phase_id: input.phase_id,
-    employee_id: input.employee_id,
-    quantity: event.quantity,
-    label: event.label,
-    created_at: timestamp(),
-  });
+  const receipt = unwrap(
+    await supabaseAdmin()
+      .from("phase_receipts")
+      .insert({
+        plc_event_id: event.id,
+        line_id: input.line_id,
+        phase_id: input.phase_id,
+        operator_id: input.employee_id,
+        quantity: event.quantity,
+        label: event.label,
+      })
+      .select("id")
+      .single(),
+  ) as { id: string };
 
-  writeAudit({
+  unwrap(
+    await supabaseAdmin()
+      .from("department_movements")
+      .insert({
+        department_id: input.phase_id,
+        movement_type: "versamento",
+        plc_event_id: event.id,
+        phase_receipt_id: receipt.id,
+        line_id: input.line_id,
+        operator_id: input.employee_id,
+        quantity: event.quantity,
+        label: event.label,
+      })
+      .select("id")
+      .single(),
+  );
+
+  await writeAudit({
     operator_id: input.employee_id,
     action: "VERSAMENTO_FASE",
     entity: "versamento",
@@ -554,11 +694,34 @@ export function submitPhaseReceipt(input: {
   return { ok: true as const };
 }
 
-export function receivePlcPayload(
+async function upsertHandshake(
+  lineId: ProductionLineId,
+  values: {
+    dato_pronte: boolean;
+    dato_letto: boolean;
+    last_label?: string | null;
+  },
+) {
+  unwrap(
+    await supabaseAdmin()
+      .from("line_handshakes")
+      .upsert(
+        {
+          line_id: lineId,
+          ...values,
+          updated_at: timestamp(),
+        },
+        { onConflict: "line_id" },
+      )
+      .select("line_id")
+      .single(),
+  );
+}
+
+export async function receivePlcPayload(
   lineId: ProductionLineId,
   payload: PlcPayload,
 ) {
-  const db = store();
   const line = getLine(lineId);
   if (!line) {
     return Response.json(
@@ -568,19 +731,17 @@ export function receivePlcPayload(
   }
 
   if (!payload.DatoPronte) {
-    db.handshakes[lineId] = {
-      datoPronte: false,
-      datoLetto: false,
-      lastLabel: db.handshakes[lineId].lastLabel,
-      updatedAt: timestamp(),
-    };
+    await upsertHandshake(lineId, {
+      dato_pronte: false,
+      dato_letto: false,
+    });
     return Response.json({ DatoLetto: false });
   }
 
   if (!Number.isInteger(payload.quantita) || Number(payload.quantita) <= 0) {
     return Response.json(
       {
-        errore: "quantità obbligatoria e positiva",
+        errore: "quantita obbligatoria e positiva",
         codice_errore: "PLC-QUANTITA-NON-VALIDA",
       },
       { status: 400 },
@@ -596,66 +757,73 @@ export function receivePlcPayload(
     );
   }
 
-  const nowMs = Date.now();
-  const duplicate = db.plcEvents.some(
-    (event) =>
-      event.line_id === lineId &&
-      event.label === payload.etichetta &&
-      nowMs - new Date(event.received_at).getTime() <= 60_000,
-  );
+  const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
+  const duplicate = unwrap(
+    await supabaseAdmin()
+      .from("plc_events")
+      .select("id")
+      .eq("line_id", lineId)
+      .eq("label", payload.etichetta)
+      .gte("received_at", oneMinuteAgo)
+      .limit(1),
+  ) as { id: string }[];
 
-  db.handshakes[lineId] = {
-    datoPronte: true,
-    datoLetto: true,
-    lastLabel: payload.etichetta,
-    updatedAt: timestamp(),
-  };
+  await upsertHandshake(lineId, {
+    dato_pronte: true,
+    dato_letto: true,
+    last_label: payload.etichetta,
+  });
 
-  if (duplicate) {
+  if (duplicate.length > 0) {
     return Response.json({ DatoLetto: true });
   }
 
-  const event: PlcEvent = {
-    id: crypto.randomUUID(),
-    line_id: lineId,
-    quantity: payload.quantita,
-    label: payload.etichetta,
-    received_at: timestamp(),
-    dato_pronte: true,
-    dato_letto: true,
-    duplicate: false,
-  };
-  db.plcEvents.unshift(event);
+  const event = unwrap(
+    await supabaseAdmin()
+      .from("plc_events")
+      .insert({
+        line_id: lineId,
+        quantity: payload.quantita,
+        label: payload.etichetta,
+        dato_pronte: true,
+        dato_letto: true,
+        duplicate: false,
+      })
+      .select("*")
+      .single(),
+  ) as PlcEvent;
 
-  const inventoryPackage: InventoryPackage = {
-    id: crypto.randomUUID(),
-    plc_event_id: event.id,
-    code: event.label,
-    line_id: lineId,
-    quantity: event.quantity,
-    status: "in_stock",
-    location: line.output,
-    created_at: timestamp(),
-    updated_at: timestamp(),
-  };
-  db.inventoryPackages.unshift(inventoryPackage);
+  const inventoryPackage = unwrap(
+    await supabaseAdmin()
+      .from("inventory_packages")
+      .insert({
+        plc_event_id: event.id,
+        code: event.label,
+        line_id: lineId,
+        quantity: event.quantity,
+        status: "in_stock",
+        location: line.output,
+      })
+      .select("*")
+      .single(),
+  ) as InventoryPackage;
 
-  db.printJobs.unshift({
-    id: crypto.randomUUID(),
-    plc_event_id: event.id,
-    line_id: lineId,
-    label: event.label,
-    quantity: event.quantity,
-    printer_name: line.printer,
-    status: "pending",
-    attempts: 0,
-    error_code: null,
-    error_message: null,
-    created_at: timestamp(),
-    updated_at: timestamp(),
-  });
+  unwrap(
+    await supabaseAdmin()
+      .from("print_jobs")
+      .insert({
+        plc_event_id: event.id,
+        line_id: lineId,
+        label: event.label,
+        quantity: event.quantity,
+        printer_name: line.printer,
+        status: "pending",
+      })
+      .select("id")
+      .single(),
+  );
 
-  writeAudit({
+  await writeAudit({
     operator_id: null,
     action: "PLC_PACCO_CREATO",
     entity: "magazzino",
@@ -673,12 +841,13 @@ export function receivePlcPayload(
 
 export async function handlePlcRequest(request: Request, lineId: string) {
   const line = getLine(lineId);
-  if (!line)
+  if (!line) {
     return Response.json(
       { errore: "Linea non valida", codice_errore: "PLC-LINEA-404" },
       { status: 404 },
     );
-  if (request.method !== "POST")
+  }
+  if (request.method !== "POST") {
     return Response.json(
       {
         errore: "Metodo non consentito",
@@ -686,14 +855,25 @@ export async function handlePlcRequest(request: Request, lineId: string) {
       },
       { status: 405 },
     );
+  }
 
   try {
     const payload = (await request.json()) as PlcPayload;
-    return receivePlcPayload(line.id, payload);
-  } catch {
+    return await receivePlcPayload(line.id, payload);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return Response.json(
+        { errore: "JSON non valido", codice_errore: "PLC-JSON-NON-VALIDO" },
+        { status: 400 },
+      );
+    }
+
     return Response.json(
-      { errore: "JSON non valido", codice_errore: "PLC-JSON-NON-VALIDO" },
-      { status: 400 },
+      {
+        errore: describeDatabaseError(error),
+        codice_errore: "PLC-DB",
+      },
+      { status: 500 },
     );
   }
 }

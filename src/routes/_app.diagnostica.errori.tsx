@@ -205,18 +205,18 @@ function buildCheckList(
 
   items.push({
     category: "Database",
-    title: "Connessione SQL Server",
-    level: data.sql.ok ? "ok" : "error",
-    code: data.sql.ok
+    title: "Connessione Supabase",
+    level: data.supabase.ok ? "ok" : "error",
+    code: data.supabase.ok
       ? "DB-OK"
-      : extractErrorCode(data.sql.message, "DB-CONFIG-MANCANTE"),
-    detail: data.sql.ok
-      ? `Database raggiungibile: ${data.sql.database ?? "nome non disponibile"}`
-      : (data.sql.message ??
-        "Problema: connessione SQL Server non configurata."),
-    action: data.sql.ok
+      : extractErrorCode(data.supabase.message, "DB-CONFIG-MANCANTE"),
+    detail: data.supabase.ok
+      ? `Database raggiungibile: ${data.supabase.database ?? "supabase"}`
+      : (data.supabase.message ??
+        "Problema: connessione Supabase non configurata."),
+    action: data.supabase.ok
       ? undefined
-      : "Verifica stringa di connessione, servizio SQL Server, rete e firewall.",
+      : databaseAction(data.supabase.message),
   });
 
   data.production.lines.forEach((line) => {
@@ -447,6 +447,26 @@ function rowClassName(level: CheckLevel) {
   if (level === "error") return "border-t border-border bg-destructive/5";
   if (level === "warning") return "border-t border-border bg-amber-50/80";
   return "border-t border-border bg-emerald-50/70";
+}
+
+function databaseAction(message: string | undefined) {
+  const code = extractErrorCode(message, "DB-CONFIG-MANCANTE");
+  if (code === "DB-SCHEMA-INCOMPLETO") {
+    return "Esegui tutto db/schema.sql e guarda il dettaglio Mancano nella diagnostica.";
+  }
+  if (code === "DB-PGRST202") {
+    return "La funzione esiste solo dopo il nuovo schema: riesegui db/schema.sql e ricarica la schema cache Supabase.";
+  }
+  if (code === "DB-42P01") {
+    return "Manca una tabella o vista: riesegui db/schema.sql nel progetto Supabase indicato dal file .env.";
+  }
+  if (code === "DB-RETE") {
+    return "Verifica SUPABASE_URL, rete/DNS e riavvia il dev server dopo modifiche al file .env.";
+  }
+  if (code === "DB-42501") {
+    return "Verifica SUPABASE_PRIVATE_KEY/service role e policy RLS.";
+  }
+  return "Verifica il dettaglio errore Supabase mostrato sopra e riavvia il dev server se hai appena aggiornato schema o .env.";
 }
 
 function extractErrorCode(message: string | undefined, fallback: string) {

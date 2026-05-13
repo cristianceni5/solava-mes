@@ -4,7 +4,7 @@ export type SessionEmployee = {
   id: string;
   matricola: string;
   full_name: string;
-  role: "operatore" | "caporeparto" | "admin";
+  role: "operatore" | "magazziniere" | "caporeparto" | "admin";
   phase_id: string;
   phase_name: string;
 };

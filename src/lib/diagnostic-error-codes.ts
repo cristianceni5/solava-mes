@@ -61,7 +61,7 @@ export const diagnosticErrorCodes: DiagnosticErrorCode[] = [
     code: "DB-OK",
     severity: "ok",
     area: "Database",
-    problem: "Connessione SQL Server regolare",
+    problem: "Connessione Supabase regolare",
     meaning: "Il database è raggiungibile e risponde al controllo diagnostico.",
     suggestedAction: "Nessuna azione richiesta.",
   },
@@ -69,63 +69,93 @@ export const diagnosticErrorCodes: DiagnosticErrorCode[] = [
     code: "DB-CONFIG-MANCANTE",
     severity: "error",
     area: "Database",
-    problem: "Connessione SQL Server non configurata",
-    meaning: "Il MES non ha una stringa di connessione SQL valida.",
+    problem: "Connessione Supabase non configurata",
+    meaning: "Il MES non ha URL o private key Supabase validi.",
     suggestedAction:
-      "Configura SQLSERVER_CONNECTION_STRING e riavvia il servizio MES.",
+      "Configura SUPABASE_URL e SUPABASE_PRIVATE_KEY e riavvia il servizio MES.",
   },
   {
     code: "DB-ESOCKET",
     severity: "error",
     area: "Database",
-    problem: "SQL Server non raggiungibile",
+    problem: "Supabase non raggiungibile",
     meaning:
       "Il server database non risponde o la rete non consente il collegamento.",
     suggestedAction:
-      "Controlla servizio SQL Server, porta TCP 1433, rete e firewall.",
+      "Controlla URL Supabase, rete, DNS e disponibilita del progetto.",
+  },
+  {
+    code: "DB-RETE",
+    severity: "error",
+    area: "Database",
+    problem: "Supabase non raggiungibile",
+    meaning:
+      "Il server MES non riesce a risolvere o contattare l'URL Supabase configurato.",
+    suggestedAction:
+      "Verifica SUPABASE_URL, DNS/rete e riavvia il dev server dopo le modifiche al file .env.",
   },
   {
     code: "DB-ELOGIN",
     severity: "error",
     area: "Database",
-    problem: "Login SQL Server rifiutato",
-    meaning: "SQL Server ha rifiutato utente, password o database.",
+    problem: "Login Supabase rifiutato",
+    meaning: "Supabase ha rifiutato chiave, permessi o policy database.",
     suggestedAction:
-      "Verifica credenziali, database, permessi e autenticazione SQL.",
+      "Verifica SUPABASE_PRIVATE_KEY, service role e policy RLS.",
   },
   {
     code: "DB-ETIMEOUT",
     severity: "error",
     area: "Database",
-    problem: "Timeout SQL Server",
+    problem: "Timeout Supabase",
     meaning: "La rete o il server non rispondono entro il tempo previsto.",
-    suggestedAction: "Controlla rete, carico SQL Server e firewall.",
+    suggestedAction: "Controlla rete, stato progetto Supabase e firewall.",
   },
   {
     code: "DB-ENOTOPEN",
     severity: "error",
     area: "Database",
-    problem: "Connessione SQL non aperta",
+    problem: "Connessione database non aperta",
     meaning:
-      "Il driver SQL non ha una connessione pronta per eseguire la query.",
+      "Il client database non ha una connessione pronta per eseguire la query.",
     suggestedAction: "Riprova o riavvia il servizio applicativo.",
   },
   {
-    code: "DB-208",
+    code: "DB-42P01",
     severity: "error",
     area: "Database",
     problem: "Tabella o vista mancante",
-    meaning: "Una query usa un oggetto SQL Server che non esiste nello schema.",
+    meaning: "Una query usa un oggetto Supabase/Postgres che non esiste nello schema.",
     suggestedAction:
       "Verifica che db/schema.sql sia stato applicato al database.",
   },
   {
-    code: "DB-2812",
+    code: "DB-SCHEMA-INCOMPLETO",
     severity: "error",
     area: "Database",
-    problem: "Funzione SQL mancante",
-    meaning: "La funzione dbo.verify_employee_pin non è presente nel database.",
-    suggestedAction: "Applica o aggiorna lo schema database.",
+    problem: "Schema Supabase incompleto",
+    meaning:
+      "La funzione mes_schema_health ha trovato tabelle, colonne o funzioni mancanti.",
+    suggestedAction:
+      "Esegui tutto db/schema.sql nel SQL Editor di Supabase e ricontrolla il dettaglio missing.",
+  },
+  {
+    code: "DB-PGRST116",
+    severity: "error",
+    area: "Database",
+    problem: "Record database non trovato",
+    meaning: "La richiesta si aspettava un record ma Supabase non lo ha trovato.",
+    suggestedAction: "Verifica dati seed, ID inviati e relazioni.",
+  },
+  {
+    code: "DB-PGRST202",
+    severity: "error",
+    area: "Database",
+    problem: "Funzione RPC Supabase mancante",
+    meaning:
+      "PostgREST non trova una funzione richiesta, oppure la schema cache Supabase non e aggiornata.",
+    suggestedAction:
+      "Esegui tutto db/schema.sql nel SQL Editor di Supabase e poi ricarica la schema cache.",
   },
   {
     code: "DB-SCONOSCIUTO",
@@ -141,8 +171,8 @@ export const diagnosticErrorCodes: DiagnosticErrorCode[] = [
     code: "DB-GENERICO",
     severity: "error",
     area: "Database",
-    problem: "Errore SQL Server generico",
-    meaning: "SQL Server ha risposto con un codice non ancora mappato nel MES.",
+    problem: "Errore Supabase generico",
+    meaning: "Supabase ha risposto con un codice non ancora mappato nel MES.",
     suggestedAction:
       "Annota il codice DB-* mostrato e aggiorna questa legenda.",
   },
